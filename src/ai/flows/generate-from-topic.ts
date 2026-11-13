@@ -10,10 +10,14 @@
 
 import {ai} from '@/ai/genkit';
 import {generateWithModelFallback} from '@/ai/model-retry';
+import {MAX_FLASHCARDS, MAX_TOPIC_CHARACTERS} from '@/ai/generation-limits';
 import {z} from 'genkit';
 
 const GenerateFromTopicInputSchema = z.object({
-  topic: z.string().describe('The topic to generate study materials for.'),
+  topic: z.string().max(
+    MAX_TOPIC_CHARACTERS,
+    `Topic must be ${MAX_TOPIC_CHARACTERS} characters or fewer.`
+  ).describe('The topic to generate study materials for.'),
 });
 export type GenerateFromTopicInput = z.infer<typeof GenerateFromTopicInputSchema>;
 
@@ -79,6 +83,9 @@ const generateFromTopicFlow = ai.defineFlow(
       throw new Error("Failed to generate content from topic.");
     }
 
-    return output;
+    return {
+      ...output,
+      flashcards: output.flashcards.slice(0, MAX_FLASHCARDS),
+    };
   }
 );

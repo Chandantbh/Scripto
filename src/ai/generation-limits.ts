@@ -1,0 +1,3 @@
+export const MAX_FLASHCARD_INPUT_CHARACTERS = 20_000;
+export const MAX_FLASHCARDS = 10;
+export const MAX_TOPIC_CHARACTERS = 500;

@@ -2,48 +2,31 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { generateWithModelFallback } from './model-retry';
 
-test('retries primary 503 responses with exponential backoff, then uses fallback', async () => {
-  const models: Array<string | undefined> = [];
-  const delays: number[] = [];
-  const expected = { notes: 'Complete notes', quiz: { questions: [] } };
+const FALLBACK_MODEL = 'googleai/gemini-3.8-flash';
 
-  const result = await generateWithModelFallback(
-    async model => {
-      models.push(model);
-      if (model === undefined) {
-        throw Object.assign(new Error('Model busy'), { status: 503 });
-      }
-      return expected;
-    },
-    async milliseconds => {
-      delays.push(milliseconds);
-    }
-  );
+test('retries transient HTTP errors and falls back, including 429 quota errors', async () => {
+  for (const status of [408, 429, 500, 502, 503, 504]) {
+    const models: Array<string | undefined> = [];
+    const delays: number[] = [];
+    const expected = { notes: 'Complete notes', quiz: { questions: [] } };
 
-  assert.equal(result, expected);
-  assert.deepEqual(models, [undefined, undefined, undefined, 'googleai/gemini-3.5-flash-lite']);
-  assert.deepEqual(delays, [500, 1000]);
-});
-
-test('retries 429 responses up to the limit without switching models', async () => {
-  const models: Array<string | undefined> = [];
-  const delays: number[] = [];
-
-  await assert.rejects(
-    generateWithModelFallback(
+    const result = await generateWithModelFallback(
       async model => {
         models.push(model);
-        throw Object.assign(new Error('Rate limited'), { status: 429 });
+        if (model === undefined) {
+          throw Object.assign(new Error('Temporary model error'), { status });
+        }
+        return expected;
       },
       async milliseconds => {
         delays.push(milliseconds);
       }
-    ),
-    /Gemini is temporarily busy/
-  );
+    );
 
-  assert.deepEqual(models, [undefined, undefined, undefined]);
-  assert.deepEqual(delays, [500, 1000]);
+    assert.equal(result, expected);
+    assert.deepEqual(models, [undefined, undefined, FALLBACK_MODEL]);
+    assert.deepEqual(delays, [500]);
+  }
 });
 
 test('returns a friendly error after primary and fallback attempts are exhausted', async () => {
@@ -64,24 +47,47 @@ test('returns a friendly error after primary and fallback attempts are exhausted
   );
 
   assert.deepEqual(models, [
-    undefined, undefined, undefined,
-    'googleai/gemini-3.5-flash-lite',
-    'googleai/gemini-3.5-flash-lite',
-    'googleai/gemini-3.5-flash-lite',
+    undefined, undefined,
+    FALLBACK_MODEL, FALLBACK_MODEL,
   ]);
-  assert.deepEqual(delays, [500, 1000, 500, 1000]);
+  assert.deepEqual(delays, [500, 500]);
 });
 
-test('does not retry or fall back for non-transient errors', async () => {
-  let calls = 0;
+test('retries recognized Google API network failures', async () => {
+  const models: Array<string | undefined> = [];
+  const expected = { notes: 'Complete notes' };
 
-  await assert.rejects(
-    generateWithModelFallback(async () => {
-      calls++;
-      throw Object.assign(new Error('Invalid request'), { status: 400 });
-    }),
-    /Invalid request/
+  const result = await generateWithModelFallback(
+    async model => {
+      models.push(model);
+      if (model === undefined) {
+        const error = new Error(
+          'Error fetching from https://generativelanguage.googleapis.com/v1beta/models/example:generateContent'
+        );
+        error.name = 'GoogleGenerativeAIError';
+        throw error;
+      }
+      return expected;
+    },
+    async () => {}
   );
 
-  assert.equal(calls, 1);
+  assert.equal(result, expected);
+  assert.deepEqual(models, [undefined, undefined, FALLBACK_MODEL]);
+});
+
+test('does not retry or fall back for non-transient HTTP errors', async () => {
+  for (const status of [400, 401, 403, 404]) {
+    let calls = 0;
+
+    await assert.rejects(
+      generateWithModelFallback(async () => {
+        calls++;
+        throw Object.assign(new Error('Invalid request'), { status });
+      }),
+      /Invalid request/
+    );
+
+    assert.equal(calls, 1);
+  }
 });

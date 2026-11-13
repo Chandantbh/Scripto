@@ -6,6 +6,7 @@
  */
 
 import { ai } from '@/ai/genkit';
+import { generateWithModelFallback } from '@/ai/model-retry';
 import { GenerateExamInputSchema, type GenerateExamInput, GenerateExamOutputSchema, type GenerateExamOutput } from '@/ai/schemas/exam-schemas';
 
 export async function generateExam(input: GenerateExamInput): Promise<GenerateExamOutput> {
@@ -54,7 +55,9 @@ const generateExamFlow = ai.defineFlow(
     outputSchema: GenerateExamOutputSchema,
   },
   async (input) => {
-    const { output } = await prompt(input);
+    const { output } = await generateWithModelFallback(model =>
+      prompt(input, model ? { model } : undefined)
+    );
     if (!output) {
       throw new Error('Failed to generate the exam paper.');
     }

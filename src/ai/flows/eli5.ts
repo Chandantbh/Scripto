@@ -9,6 +9,7 @@
  */
 
 import {ai} from '@/ai/genkit';
+import {generateWithModelFallback} from '@/ai/model-retry';
 import {z} from 'genkit';
 
 const ExplainLikeImFiveInputSchema = z.object({
@@ -61,7 +62,9 @@ const eli5Flow = ai.defineFlow(
     outputSchema: ExplainLikeImFiveOutputSchema,
   },
   async (input) => {
-    const { output } = await generateContentPrompt(input);
+    const { output } = await generateWithModelFallback(model =>
+      generateContentPrompt(input, model ? {model} : undefined)
+    );
     
     if (!output) {
       throw new Error("Failed to generate explanation.");

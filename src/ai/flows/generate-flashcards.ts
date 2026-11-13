@@ -10,6 +10,11 @@
  */
 
 import {ai} from '@/ai/genkit';
+import {generateWithModelFallback} from '@/ai/model-retry';
+import {
+  MAX_FLASHCARD_INPUT_CHARACTERS,
+  MAX_FLASHCARDS,
+} from '@/ai/generation-limits';
 import { getYouTubeTranscript } from '@/services/youtube';
 import {z} from 'genkit';
 
@@ -48,10 +53,11 @@ const prompt = ai.definePrompt({
   2. A concise "answer".
   3. A single, valid "emoji" character that is thematically related to the content.
   4. A "color" as a hex code that is visually appealing for a background. Ensure good contrast for dark text.
+  Generate between 5 and ${MAX_FLASHCARDS} flashcards, using fewer only if the content is very short. Keep each answer concise.
 
   Content: {{{content}}}
 
-  Format the output as a JSON array of objects. Do not include any other text in your response, only the JSON array.
+  Return only the structured flashcards object requested by the output schema.
   `,
 });
 
@@ -76,8 +82,25 @@ const generateFlashcardsFlow = ai.defineFlow(
     if (!content) {
         throw new Error("No content provided to generate flashcards.");
     }
-    
-    const {output} = await prompt({ content });
-    return output!;
+    if (content.length > MAX_FLASHCARD_INPUT_CHARACTERS) {
+      throw new Error(
+        `Please limit flashcard source content to ${MAX_FLASHCARD_INPUT_CHARACTERS.toLocaleString()} characters.`
+      );
+    }
+
+    const {output} = await generateWithModelFallback(model =>
+      prompt(
+        { content },
+        {
+          ...(model ? {model} : {}),
+          config: {maxOutputTokens: 2048},
+        }
+      )
+    );
+    if (!output) {
+      throw new Error('Failed to generate flashcards.');
+    }
+
+    return {flashcards: output.flashcards.slice(0, MAX_FLASHCARDS)};
   }
 );

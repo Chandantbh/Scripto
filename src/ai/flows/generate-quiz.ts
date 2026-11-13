@@ -9,6 +9,7 @@
  */
 
 import {ai} from '@/ai/genkit';
+import {generateWithModelFallback} from '@/ai/model-retry';
 import { getYouTubeTranscript } from '@/services/youtube';
 import {z} from 'genkit';
 
@@ -63,7 +64,13 @@ const generateQuizFlow = ai.defineFlow(
       throw new Error("No content provided to generate a quiz.");
     }
 
-    const {output} = await prompt({ content });
-    return output!;
+    const {output} = await generateWithModelFallback(model =>
+      prompt({ content }, model ? {model} : undefined)
+    );
+    if (!output) {
+      throw new Error('Failed to generate the quiz.');
+    }
+
+    return output;
   }
 );

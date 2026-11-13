@@ -6,6 +6,7 @@
  */
 
 import { ai } from '@/ai/genkit';
+import { generateWithModelFallback } from '@/ai/model-retry';
 import {
   EvaluateExamInputSchema,
   type EvaluateExamInput,
@@ -70,7 +71,9 @@ const evaluateExamFlow = ai.defineFlow(
     outputSchema: EvaluateExamOutputSchema,
   },
   async (input) => {
-    const { output } = await prompt(input);
+    const { output } = await generateWithModelFallback(model =>
+      prompt(input, model ? { model } : undefined)
+    );
     if (!output) {
       throw new Error('Failed to evaluate the exam.');
     }
