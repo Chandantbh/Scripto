@@ -7,8 +7,8 @@ export default function manifest(): MetadataRoute.Manifest {
     description: 'AI-powered study assistant',
     start_url: '/',
     display: 'standalone',
-    background_color: '#ffffff',
-    theme_color: '#000000',
+    background_color: '#f4f6f9',
+    theme_color: '#09090b',
     icons: [
       {
         src: '/favicon.ico',

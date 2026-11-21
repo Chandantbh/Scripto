@@ -22,11 +22,11 @@ const ExamResultsDisplay: FC<ExamResultsDisplayProps> = ({ results, questions })
   const getStatusIcon = (status: 'correct' | 'incorrect' | 'partially-correct') => {
     switch (status) {
       case 'correct':
-        return <CheckCircle className="h-5 w-5 text-green-500" />;
+        return <CheckCircle className="h-5 w-5 text-foreground" />;
       case 'incorrect':
-        return <XCircle className="h-5 w-5 text-red-500" />;
+        return <XCircle className="h-5 w-5 text-muted-foreground" />;
       case 'partially-correct':
-        return <AlertCircle className="h-5 w-5 text-yellow-500" />;
+        return <AlertCircle className="h-5 w-5 text-muted-foreground" />;
     }
   };
 
@@ -69,9 +69,9 @@ const ExamResultsDisplay: FC<ExamResultsDisplayProps> = ({ results, questions })
               if (!feedback) return null;
 
               const statusClasses = {
-                'correct': 'border-green-500/50 hover:bg-green-500/10',
-                'incorrect': 'border-red-500/50 hover:bg-red-500/10',
-                'partially-correct': 'border-yellow-500/50 hover:bg-yellow-500/10',
+                'correct': 'border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900',
+                'incorrect': 'border-dashed border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900',
+                'partially-correct': 'border-dotted border-zinc-400 hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-900',
               };
               
               const marksAwardedText = feedback.marksAwarded !== undefined ? `${feedback.marksAwarded}/${question.marks}` : `${question.marks}/${question.marks}`;

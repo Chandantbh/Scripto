@@ -7,7 +7,7 @@ export default function LandingPage() {
   return (
     <div className="flex flex-col min-h-screen bg-background">
       <main className="flex-1">
-        <section className="w-full py-20 md:py-32 lg:py-40 bg-gradient-to-br from-background to-secondary">
+        <section className="w-full py-20 md:py-32 lg:py-40 bg-background">
           <div className="container mx-auto px-4 md:px-6 text-center">
             <div className="max-w-3xl mx-auto">
               <BrainCircuit className="mx-auto h-20 w-20 text-primary mb-6" />

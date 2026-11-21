@@ -53,8 +53,10 @@ const ExamTimer = ({ durationMinutes, onTimeUp }: { durationMinutes: number; onT
 
     return (
         <div className={cn(
-            "fixed bottom-4 right-4 flex items-center gap-2 rounded-full px-4 py-2 text-white shadow-lg transition-colors",
-            isLowTime ? "bg-red-600" : "bg-primary"
+            "fixed bottom-4 right-4 flex items-center gap-2 rounded-full px-4 py-2 shadow-lg transition-colors",
+            isLowTime
+              ? "bg-zinc-700 text-white dark:bg-zinc-300 dark:text-zinc-950"
+              : "bg-zinc-950 text-white dark:bg-white dark:text-zinc-950"
         )}>
             <Clock className="h-5 w-5" />
             <span className="font-mono text-lg font-semibold">

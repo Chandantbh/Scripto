@@ -18,7 +18,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 
 interface ActivityResult {
@@ -85,9 +84,8 @@ export default function ProgressPage() {
   
   const ActivityIcon = ({type}: {type: 'quiz' | 'exam'}) => {
     const Icon = type === 'quiz' ? FileQuestion : ClipboardCheck;
-    const color = type === 'quiz' ? 'text-blue-500 bg-blue-100' : 'text-purple-500 bg-purple-100';
     return (
-      <div className={cn('rounded-full p-2', color)}>
+      <div className="rounded-full border border-border bg-secondary p-2 text-secondary-foreground">
         <Icon className="h-5 w-5" />
       </div>
     );

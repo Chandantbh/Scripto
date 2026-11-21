@@ -87,14 +87,6 @@ const FlashcardsDisplay: FC<FlashcardsDisplayProps> = ({ flashcards }) => {
     setFlippedStates(newFlippedStates);
   };
 
-  const isColorDark = (hexColor: string) => {
-    const color = hexColor.charAt(0) === '#' ? hexColor.substring(1, 7) : hexColor;
-    const r = parseInt(color.substring(0, 2), 16);
-    const g = parseInt(color.substring(2, 4), 16);
-    const b = parseInt(color.substring(4, 6), 16);
-    return (r * 0.299 + g * 0.587 + b * 0.114) < 186;
-  };
-
   if (!flashcards || flashcards.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-center">
@@ -119,9 +111,6 @@ const FlashcardsDisplay: FC<FlashcardsDisplayProps> = ({ flashcards }) => {
       <Carousel className="w-full max-w-md mx-auto">
         <CarouselContent>
           {flashcards.map((flashcard, index) => {
-            const cardTextColor = isColorDark(flashcard.color) ? 'text-white' : 'text-black';
-            const cardStyle = { backgroundColor: flashcard.color };
-
             return (
               <CarouselItem key={index}>
                 <div className="p-1">
@@ -134,7 +123,7 @@ const FlashcardsDisplay: FC<FlashcardsDisplayProps> = ({ flashcards }) => {
                     <div className="flip-card-inner relative w-full h-full">
                       {/* Front of card */}
                       <div className="flip-card-front absolute w-full h-full">
-                        <Card className={cn("w-full h-full flex flex-col", cardTextColor)} style={cardStyle}>
+                        <Card className="flex h-full w-full flex-col">
                           <CardContent className="flex-1 flex flex-col items-center justify-center p-6 text-center">
                             <div className="text-6xl mb-4">{flashcard.emoji}</div>
                             <p className="text-xs opacity-80 mb-2">QUESTION</p>
@@ -142,10 +131,10 @@ const FlashcardsDisplay: FC<FlashcardsDisplayProps> = ({ flashcards }) => {
                               <p className="text-lg font-semibold">{flashcard.question}</p>
                             </ScrollArea>
                           </CardContent>
-                          <div className={cn("p-4 border-t", isColorDark(flashcard.color) ? 'border-white/20' : 'border-black/10')}>
+                          <div className="border-t border-border p-4">
                             <Button
                               variant="ghost"
-                              className={cn("w-full", isColorDark(flashcard.color) ? 'hover:bg-white/10' : 'hover:bg-black/10')}
+                              className="w-full"
                               onClick={() => handleFlip(index)}
                             >
                               <RefreshCw className="mr-2 h-4 w-4" />
@@ -157,7 +146,7 @@ const FlashcardsDisplay: FC<FlashcardsDisplayProps> = ({ flashcards }) => {
                       
                       {/* Back of card */}
                       <div className="flip-card-back absolute w-full h-full">
-                        <Card className={cn("w-full h-full flex flex-col", cardTextColor)} style={cardStyle}>
+                        <Card className="flex h-full w-full flex-col">
                           <CardContent className="flex-1 flex flex-col items-center justify-center p-6 text-center">
                             <div className="text-6xl mb-4">{flashcard.emoji}</div>
                             <p className="text-xs opacity-80 mb-2">ANSWER</p>
@@ -165,10 +154,10 @@ const FlashcardsDisplay: FC<FlashcardsDisplayProps> = ({ flashcards }) => {
                               <p className="text-lg">{flashcard.answer}</p>
                             </ScrollArea>
                           </CardContent>
-                          <div className={cn("p-4 border-t", isColorDark(flashcard.color) ? 'border-white/20' : 'border-black/10')}>
+                          <div className="border-t border-border p-4">
                             <Button
                               variant="ghost"
-                              className={cn("w-full", isColorDark(flashcard.color) ? 'hover:bg-white/10' : 'hover:bg-black/10')}
+                              className="w-full"
                               onClick={() => handleFlip(index)}
                             >
                               <RefreshCw className="mr-2 h-4 w-4" />
