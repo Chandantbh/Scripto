@@ -67,10 +67,10 @@ export default function AppHeader() {
           key={item.href}
           href={item.href}
           className={cn(
-            'flex shrink-0 items-center gap-2 rounded-xl border px-3.5 py-2 text-sm font-semibold transition-all duration-200 hover:-translate-y-0.5',
+            'flex h-12 w-full shrink-0 items-center justify-center gap-2 rounded-xl border px-5 text-sm font-semibold transition-colors duration-200 2xl:w-auto',
             pathname.startsWith(item.href)
-              ? 'border-primary/30 bg-primary/10 text-primary shadow-sm shadow-primary/10'
-              : 'border-slate-200/80 bg-white/50 text-muted-foreground backdrop-blur-md hover:border-primary/25 hover:bg-primary/5 hover:text-foreground dark:border-white/10 dark:bg-slate-900/45 dark:hover:bg-white/10 dark:hover:shadow-lg dark:hover:shadow-primary/10'
+              ? 'border-zinc-300 bg-white text-zinc-950 shadow-sm dark:border-zinc-600 dark:bg-zinc-800 dark:text-white'
+              : 'border-slate-200 bg-secondary text-muted-foreground hover:border-slate-300 hover:bg-white hover:text-foreground dark:border-zinc-800 dark:bg-zinc-900/90 dark:hover:border-zinc-700 dark:hover:bg-zinc-800'
           )}
           onClick={() => setIsMobileMenuOpen(false)}
         >
@@ -82,19 +82,9 @@ export default function AppHeader() {
   );
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-slate-200/80 bg-white/70 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/60">
-      <div className="container flex h-16 items-center gap-3">
-        <div className="flex min-w-0 items-center">
-           <Link href="/" className="mr-5 flex shrink-0 items-center gap-2.5 pr-2">
-            <BrainCircuit className="h-9 w-9 text-primary" />
-            <span className="font-heading text-xl font-bold tracking-tight">Scripto</span>
-          </Link>
-          <nav className="hidden min-w-0 items-center gap-2 overflow-x-auto py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden 2xl:flex">
-            {navLinks}
-          </nav>
-        </div>
-
-        <div className="ml-auto flex shrink-0 items-center justify-end gap-2">
+    <header className="relative z-50 w-full bg-transparent">
+      <div className="container pt-8 pb-6 md:pt-10">
+        <div className="flex items-center justify-end gap-2">
             <Show when="signed-in">
                 <UserButton />
             </Show>
@@ -112,30 +102,30 @@ export default function AppHeader() {
                   variant="ghost"
                   size="icon"
                   aria-label="Choose color theme"
-                  className="h-10 w-10 rounded-xl border border-slate-200/80 bg-white/60 text-foreground shadow-sm backdrop-blur-md transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/5 dark:border-white/10 dark:bg-slate-900/50 dark:hover:bg-white/10"
+                  className="h-10 w-10 rounded-xl border-0 bg-transparent text-foreground shadow-none transition-colors hover:bg-secondary"
                 >
                   <MoreVertical className="h-5 w-5" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="end"
-                className="min-w-40 rounded-xl border-slate-200/80 bg-white/85 p-1.5 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/90"
+                className="min-w-40 rounded-xl border-border bg-popover p-1.5 shadow-xl"
               >
                 <DropdownMenuItem
                   onSelect={() => setTheme('light')}
                   className="rounded-lg px-3 py-2.5"
                 >
-                  <Sun className="h-4 w-4 text-amber-500" />
+                  <Sun className="h-4 w-4 text-muted-foreground" />
                   <span>Light Mode</span>
-                  {theme === 'light' && <Check className="ml-auto h-4 w-4 text-primary" />}
+                  {theme === 'light' && <Check className="ml-auto h-4 w-4 text-foreground" />}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={() => setTheme('dark')}
                   className="rounded-lg px-3 py-2.5"
                 >
-                  <Moon className="h-4 w-4 text-indigo-500" />
+                  <Moon className="h-4 w-4 text-muted-foreground" />
                   <span>Dark Mode</span>
-                  {theme === 'dark' && <Check className="ml-auto h-4 w-4 text-primary" />}
+                  {theme === 'dark' && <Check className="ml-auto h-4 w-4 text-foreground" />}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -145,22 +135,27 @@ export default function AppHeader() {
                 <Button
                   variant="outline"
                   size="icon"
-                  className="h-10 w-10 rounded-xl border-slate-200/80 bg-white/60 text-foreground backdrop-blur-md dark:border-white/10 dark:bg-slate-900/50 2xl:hidden"
+                  className="order-first h-10 w-10 rounded-xl border-border bg-card text-foreground 2xl:hidden"
                 >
                   <Menu className="h-5 w-5" />
                   <span className="sr-only">Toggle Menu</span>
                 </Button>
               </SheetTrigger>
-              <SheetContent side="right" className="w-[85vw] border-slate-200/80 bg-white/90 backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/90 sm:w-[350px]">
+              <SheetContent side="right" className="w-[85vw] border-border bg-background sm:w-[350px]">
                  <SheetHeader>
                     <SheetTitle className="text-left">Menu</SheetTitle>
                     <SheetDescription className="text-left">
                         Navigate to different sections of Scripto
                     </SheetDescription>
                   </SheetHeader>
-                 <Link href="/" className="my-5 flex items-center gap-2.5" onClick={() => setIsMobileMenuOpen(false)}>
-                    <BrainCircuit className="h-9 w-9 text-primary" />
-                    <span className="font-heading text-xl font-bold">Scripto</span>
+                 <Link href="/" className="my-5 flex items-center gap-3" onClick={() => setIsMobileMenuOpen(false)}>
+                    <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-secondary dark:border-zinc-800">
+                      <BrainCircuit className="h-6 w-6 text-foreground" />
+                    </span>
+                    <span className="flex flex-col">
+                      <span className="font-heading text-lg font-bold leading-tight">Scripto</span>
+                      <span className="text-[10px] font-medium uppercase tracking-[0.22em] text-muted-foreground">AI Study Assistant</span>
+                    </span>
                 </Link>
                 <div className="flex flex-col gap-2">
                     {navLinks}
@@ -168,6 +163,23 @@ export default function AppHeader() {
               </SheetContent>
             </Sheet>
         </div>
+
+        <div className="mt-6 flex items-center">
+          <Link href="/" className="flex shrink-0 items-center gap-3">
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-secondary dark:border-zinc-800">
+              <BrainCircuit className="h-6 w-6 text-foreground" />
+            </span>
+            <span className="flex flex-col">
+              <span className="font-heading text-lg font-bold leading-tight tracking-tight">Scripto</span>
+              <span className="text-[10px] font-medium uppercase tracking-[0.22em] text-muted-foreground">AI Study Assistant</span>
+            </span>
+          </Link>
+          <nav className="ml-8 hidden min-w-0 flex-1 items-center gap-3 overflow-x-auto py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden 2xl:flex">
+            {navLinks}
+          </nav>
+        </div>
+
+        <div aria-hidden="true" className="mt-6 border-b border-slate-200 dark:border-zinc-800" />
       </div>
     </header>
   );
