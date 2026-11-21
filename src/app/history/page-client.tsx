@@ -16,47 +16,62 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-
-interface QuizResult {
-  topic: string;
-  score: number;
-  totalQuestions: number;
-  date: string;
-}
-
-interface GamificationStats {
-    xp: number;
-    streak: number;
-    longestStreak: number;
-}
+import { clearUserHistoryAction, getUserProgressAction } from '@/app/actions/user-data';
+import {
+  clearLocalProgress,
+  createEmptyGamificationStats,
+  readLocalProgress,
+  type ActivityRecord,
+  type GamificationStats,
+} from '@/lib/gamification';
 
 export default function HistoryPage() {
-  const [quizHistory, setQuizHistory] = useState<QuizResult[]>([]);
-  const [stats, setStats] = useState<GamificationStats>({ xp: 0, streak: 0, longestStreak: 0 });
+  const [activityHistory, setActivityHistory] = useState<ActivityRecord[]>([]);
+  const [stats, setStats] = useState<GamificationStats>(createEmptyGamificationStats());
   const [isClient, setIsClient] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
+  const [syncWarning, setSyncWarning] = useState(false);
 
   useEffect(() => {
-    setIsClient(true);
-    // Move localStorage access inside useEffect to ensure it runs only on the client
-    try {
-        const storedHistory = localStorage.getItem('quizHistory');
-        if (storedHistory) {
-            setQuizHistory(JSON.parse(storedHistory));
-        }
-        const storedStats = localStorage.getItem('gamificationStats');
-        if (storedStats) {
-            setStats(JSON.parse(storedStats));
-        }
-    } catch (error) {
-        console.error("Failed to parse from localStorage", error);
-    }
+    let active = true;
+    const loadProgress = async () => {
+      try {
+        const accountProgress = await getUserProgressAction();
+        if (!active) return;
+        const progress = accountProgress ?? readLocalProgress();
+        setActivityHistory(progress.history);
+        setStats(progress.stats);
+      } catch (error) {
+        console.error('Could not load account activity history.', error);
+        if (!active) return;
+        const progress = readLocalProgress();
+        setActivityHistory(progress.history);
+        setStats(progress.stats);
+        setSyncWarning(true);
+      } finally {
+        if (active) setIsClient(true);
+      }
+    };
+    void loadProgress();
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const clearHistory = () => {
-    localStorage.removeItem('quizHistory');
-    localStorage.removeItem('gamificationStats');
-    setQuizHistory([]);
-    setStats({ xp: 0, streak: 0, longestStreak: 0 });
+  const clearHistory = async () => {
+    setIsClearing(true);
+    try {
+      await clearUserHistoryAction();
+      clearLocalProgress();
+      setActivityHistory([]);
+      setStats(createEmptyGamificationStats());
+      setSyncWarning(false);
+    } catch (error) {
+      console.error('Could not clear account activity history.', error);
+      setSyncWarning(true);
+    } finally {
+      setIsClearing(false);
+    }
   };
   
   const StatCard = ({ icon, label, value, unit }: { icon: React.ElementType, label: string, value: number, unit?: string }) => {
@@ -82,17 +97,17 @@ export default function HistoryPage() {
       return <div className="flex flex-col items-center justify-center h-full text-center p-8"><History className="h-16 w-16 text-muted-foreground/50 mb-4" /></div>;
     }
     
-    if (quizHistory.length === 0) {
+    if (activityHistory.length === 0) {
       return (
         <div className="flex flex-col items-center justify-center h-full text-center p-8">
           <History className="h-16 w-16 text-muted-foreground/50 mb-4" />
-          <h3 className="text-lg font-semibold">No Quiz History</h3>
-          <p className="text-sm text-muted-foreground">Your past quiz results will be saved here.</p>
+          <h3 className="text-lg font-semibold">No Activity History</h3>
+          <p className="text-sm text-muted-foreground">Your past quiz and exam results will be saved here.</p>
         </div>
       );
     }
 
-    const sortedHistory = [...quizHistory].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const sortedHistory = [...activityHistory].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     return (
       <ScrollArea className="h-full">
@@ -101,17 +116,17 @@ export default function HistoryPage() {
             <Card key={index}>
               <CardContent className="p-4 flex justify-between items-center">
                 <div>
-                  <p className="font-semibold capitalize">{result.topic || 'General Quiz'}</p>
+                <p className="font-semibold capitalize">{result.topic || `General ${result.type}`}</p>
                   <p className="text-sm text-muted-foreground">
                     {new Date(result.date).toLocaleString()}
                   </p>
                 </div>
                 <div className="text-right">
                   <p className="text-xl font-bold">
-                    {result.score}/{result.totalQuestions}
+                  {result.score}/{result.total}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    Score
+                  {result.type === 'quiz' ? 'Score' : 'Marks'}
                   </p>
                 </div>
               </CardContent>
@@ -141,20 +156,20 @@ export default function HistoryPage() {
         </div>
 
         <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold">Quiz History</h2>
-            {isClient && quizHistory.length > 0 && (
+            <h2 className="text-xl font-semibold">Activity History</h2>
+            {isClient && activityHistory.length > 0 && (
             <AlertDialog>
                 <AlertDialogTrigger asChild>
-                <Button variant="destructive" size="sm">
+                <Button variant="destructive" size="sm" disabled={isClearing}>
                     <Trash2 className="mr-2 h-4 w-4" />
-                    Clear All Data
+                    {isClearing ? 'Clearing...' : 'Clear All Data'}
                 </Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                 <AlertDialogHeader>
                     <AlertDialogTitle>Are you sure?</AlertDialogTitle>
                     <AlertDialogDescription>
-                    This will permanently delete your entire quiz history and progress data. This action cannot be undone.
+                    This will permanently delete your activity history and progress data. This action cannot be undone.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -165,6 +180,11 @@ export default function HistoryPage() {
             </AlertDialog>
             )}
         </div>
+        {syncWarning && (
+          <div role="status" className="mb-4 rounded-lg border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
+            Account sync is unavailable. Showing activity saved on this device.
+          </div>
+        )}
         <Card className="flex-1">
             <CardContent className="p-6 h-[400px]">
             {renderHistory()}

@@ -1,122 +1,225 @@
+import { differenceInCalendarDays, isSameWeek } from 'date-fns';
 
-'use client';
+export type ActivityType = 'quiz' | 'exam';
 
-import { differenceInCalendarDays, isSameWeek } from "date-fns";
-import { toast } from "../hooks/use-toast";
-import { achievements } from "./achievements";
+export interface ActivityInput {
+  type: ActivityType;
+  topic: string;
+  score: number;
+  total: number;
+  grade?: string;
+}
 
-export const checkAndAwardAchievements = (newActivityHistory: any[], currentStats: any) => {
-    const newAchievements = new Set(currentStats.achievements || []);
-    
-    const showAchievementToast = (id: string) => {
-        if (!newAchievements.has(id)) {
-            const achievement = achievements.find(a => a.id === id);
-            if (achievement) {
-                newAchievements.add(id);
-                toast({ title: `Achievement Unlocked: ${achievement.name}!`, description: achievement.description, className: 'bg-accent text-accent-foreground' });
-            }
-        }
+export interface ActivityRecord extends ActivityInput {
+  date: string;
+}
+
+export interface GamificationStats {
+  xp: number;
+  streak: number;
+  longestStreak: number;
+  lastActivityDate: string | null;
+  achievements: string[];
+}
+
+export interface UserProgress {
+  stats: GamificationStats;
+  history: ActivityRecord[];
+}
+
+export interface ActivityProgressUpdate {
+  activity: ActivityRecord;
+  history: ActivityRecord[];
+  stats: GamificationStats;
+  earnedXp: number;
+  newAchievements: string[];
+}
+
+export function createEmptyGamificationStats(): GamificationStats {
+  return {
+    xp: 0,
+    streak: 0,
+    longestStreak: 0,
+    lastActivityDate: null,
+    achievements: [],
+  };
+}
+
+export function checkAndAwardAchievements(
+  history: readonly ActivityRecord[],
+  stats: GamificationStats,
+  now = new Date(),
+): string[] {
+  const awarded = new Set(stats.achievements);
+  const examHistory = history.filter(activity => activity.type === 'exam');
+  const quizHistory = history.filter(activity => activity.type === 'quiz');
+
+  const award = (id: string) => awarded.add(id);
+
+  if (examHistory.length >= 1) award('exam_novice');
+  if (examHistory.length >= 5) award('exam_pro');
+  if (examHistory.length >= 15) award('exam_veteran');
+
+  const lastExam = examHistory[examHistory.length - 1];
+  if (lastExam) {
+    const percentage = lastExam.total > 0 ? (lastExam.score / lastExam.total) * 100 : 0;
+    if (percentage >= 90) award('top_scorer');
+    if (percentage === 100) award('exam_ace');
+
+    const sameSubjectExams = examHistory.filter(
+      exam => exam.topic.toLowerCase() === lastExam.topic.toLowerCase(),
+    );
+    if (sameSubjectExams.length >= 3) award('subject_specialist');
+  }
+
+  if (quizHistory.length >= 1) award('quiz_taker');
+  if (quizHistory.length >= 10) award('quiz_master');
+  if (quizHistory.length >= 25) award('quiz_champion');
+
+  const lastQuiz = quizHistory[quizHistory.length - 1];
+  if (lastQuiz && lastQuiz.score === lastQuiz.total) award('perfect_quiz');
+
+  if (stats.streak >= 3) award('scholars_streak_3');
+  if (stats.streak >= 7) award('dedicated_learner_7');
+
+  if (
+    examHistory.length >= 3 &&
+    examHistory.slice(-3).every(exam => ['A+', 'A'].includes(exam.grade ?? ''))
+  ) {
+    award('consistent_performer');
+  }
+
+  const examsThisWeek = examHistory.filter(activity =>
+    isSameWeek(new Date(activity.date), now, { weekStartsOn: 1 }),
+  );
+  if (examsThisWeek.length >= 3) award('weekly_warrior');
+
+  const quizzesThisWeek = quizHistory.filter(activity =>
+    isSameWeek(new Date(activity.date), now, { weekStartsOn: 1 }),
+  );
+  if (quizzesThisWeek.length >= 5) award('quiz_whiz');
+
+  return Array.from(awarded);
+}
+
+export function calculateActivityProgress(
+  history: ActivityRecord[],
+  currentStats: GamificationStats,
+  entry: ActivityInput,
+  now = new Date(),
+): ActivityProgressUpdate {
+  const activity: ActivityRecord = { ...entry, date: now.toISOString() };
+  const updatedHistory = [...history, activity];
+  const previousAchievements = new Set(currentStats.achievements);
+  const earnedXp = entry.score * (entry.type === 'quiz' ? 10 : 1);
+  const stats: GamificationStats = {
+    ...currentStats,
+    achievements: [...currentStats.achievements],
+    xp: currentStats.xp + earnedXp,
+  };
+
+  const lastActivityDate = stats.lastActivityDate
+    ? new Date(stats.lastActivityDate)
+    : null;
+  if (lastActivityDate && !Number.isNaN(lastActivityDate.getTime())) {
+    const daysSinceLastActivity = differenceInCalendarDays(now, lastActivityDate);
+    if (daysSinceLastActivity === 1) stats.streak += 1;
+    else if (daysSinceLastActivity > 1) stats.streak = 1;
+  } else {
+    stats.streak = 1;
+  }
+
+  stats.longestStreak = Math.max(stats.longestStreak, stats.streak);
+  stats.lastActivityDate = now.toISOString();
+  stats.achievements = checkAndAwardAchievements(updatedHistory, stats, now);
+
+  return {
+    activity,
+    history: updatedHistory,
+    stats,
+    earnedXp,
+    newAchievements: stats.achievements.filter(id => !previousAchievements.has(id)),
+  };
+}
+
+export function readLocalProgress(): UserProgress {
+  const emptyProgress = { stats: createEmptyGamificationStats(), history: [] };
+  if (typeof window === 'undefined') return emptyProgress;
+
+  try {
+    const parsedHistory: unknown = JSON.parse(
+      window.localStorage.getItem('activityHistory') ?? '[]',
+    );
+    const parsedStats: unknown = JSON.parse(
+      window.localStorage.getItem('gamificationStats') ?? '{}',
+    );
+    const history = Array.isArray(parsedHistory)
+      ? parsedHistory.filter(isActivityRecord)
+      : [];
+    const statsRecord =
+      typeof parsedStats === 'object' && parsedStats !== null
+        ? (parsedStats as Partial<GamificationStats>)
+        : {};
+
+    return {
+      history,
+      stats: {
+        xp: finiteNonNegative(statsRecord.xp),
+        streak: finiteNonNegative(statsRecord.streak),
+        longestStreak: finiteNonNegative(statsRecord.longestStreak),
+        lastActivityDate:
+          typeof statsRecord.lastActivityDate === 'string'
+            ? statsRecord.lastActivityDate
+            : null,
+        achievements: Array.isArray(statsRecord.achievements)
+          ? statsRecord.achievements.filter(
+              (achievement): achievement is string => typeof achievement === 'string',
+            )
+          : [],
+      },
     };
-    
-    const examHistory = newActivityHistory.filter((item: any) => item.type === 'exam');
-    const quizHistory = newActivityHistory.filter((item: any) => item.type === 'quiz');
+  } catch (error) {
+    console.error('Unable to read local progress.', error);
+    return emptyProgress;
+  }
+}
 
-    // Exam Achievements
-    if (examHistory.length >= 1) showAchievementToast('exam_novice');
-    if (examHistory.length >= 5) showAchievementToast('exam_pro');
-    if (examHistory.length >= 15) showAchievementToast('exam_veteran');
+export function recordActivityLocally(entry: ActivityInput): ActivityProgressUpdate | null {
+  if (typeof window === 'undefined') return null;
 
-    const lastExam = examHistory[examHistory.length - 1];
-    if (lastExam) {
-        const percentage = lastExam.total > 0 ? (lastExam.score / lastExam.total) * 100 : 0;
-        if (percentage >= 90) showAchievementToast('top_scorer');
-        if (percentage === 100) showAchievementToast('exam_ace');
-        
-        const sameSubjectExams = examHistory.filter((e: any) => e.topic.toLowerCase() === lastExam.topic.toLowerCase());
-        if (sameSubjectExams.length >= 3) showAchievementToast('subject_specialist');
-    }
+  const currentProgress = readLocalProgress();
+  const update = calculateActivityProgress(
+    currentProgress.history,
+    currentProgress.stats,
+    entry,
+  );
+  window.localStorage.setItem('activityHistory', JSON.stringify(update.history));
+  window.localStorage.setItem('gamificationStats', JSON.stringify(update.stats));
+  return update;
+}
 
-    // Quiz Achievements
-    if (quizHistory.length >= 1) showAchievementToast('quiz_taker');
-    if (quizHistory.length >= 10) showAchievementToast('quiz_master');
-    if (quizHistory.length >= 25) showAchievementToast('quiz_champion');
-    
-    const lastQuiz = quizHistory[quizHistory.length - 1];
-    if(lastQuiz && lastQuiz.score === lastQuiz.total) {
-        showAchievementToast('perfect_quiz');
-    }
-    
+export function clearLocalProgress(): void {
+  if (typeof window === 'undefined') return;
 
-    // Consistency Achievements
-    if (currentStats.streak >= 3) showAchievementToast('scholars_streak_3');
-    if (currentStats.streak >= 7) showAchievementToast('dedicated_learner_7');
+  window.localStorage.removeItem('activityHistory');
+  window.localStorage.removeItem('gamificationStats');
+  window.localStorage.removeItem('quizHistory');
+}
 
-    if (examHistory.length >= 3) {
-      const lastThreeExams = examHistory.slice(-3);
-      if (lastThreeExams.every((e: any) => ['A+', 'A'].includes(e.grade))) {
-        showAchievementToast('consistent_performer');
-      }
-    }
-    
-    const today = new Date();
-    const examsThisWeek = examHistory.filter((h: any) => isSameWeek(new Date(h.date), today, { weekStartsOn: 1 }));
-    if (examsThisWeek.length >= 3) showAchievementToast('weekly_warrior');
-    
-    const quizzesThisWeek = quizHistory.filter((h: any) => isSameWeek(new Date(h.date), today, { weekStartsOn: 1 }));
-    if (quizzesThisWeek.length >= 5) showAchievementToast('quiz_whiz');
+function isActivityRecord(value: unknown): value is ActivityRecord {
+  if (typeof value !== 'object' || value === null) return false;
+  const record = value as Partial<ActivityRecord>;
+  return (
+    (record.type === 'quiz' || record.type === 'exam') &&
+    typeof record.topic === 'string' &&
+    typeof record.score === 'number' &&
+    Number.isFinite(record.score) &&
+    typeof record.total === 'number' &&
+    Number.isFinite(record.total) &&
+    typeof record.date === 'string'
+  );
+}
 
-
-    return Array.from(newAchievements);
-};
-
-const updateStatsAndSave = (activityType: 'quiz' | 'exam', payload: { topic: string; score: number; total: number; grade?: string; }) => {
-    if (typeof window === 'undefined') return;
-
-    const result = {
-      type: activityType,
-      ...payload,
-      date: new Date().toISOString(),
-    };
-    
-    const history = JSON.parse(localStorage.getItem('activityHistory') || '[]');
-    history.push(result);
-    localStorage.setItem('activityHistory', JSON.stringify(history));
-
-    let stats = JSON.parse(localStorage.getItem('gamificationStats') || '{"xp":0, "streak":0, "longestStreak":0, "lastActivityDate": null, "achievements": []}');
-    
-    // Add XP
-    stats.xp += payload.score * (activityType === 'quiz' ? 10 : 1); 
-
-    // Update streak
-    const today = new Date();
-    const lastActivityDate = stats.lastActivityDate ? new Date(stats.lastActivityDate) : null;
-    if (lastActivityDate) {
-        const diff = differenceInCalendarDays(today, lastActivityDate);
-        if (diff === 1) stats.streak++;
-        else if (diff > 1) stats.streak = 1;
-    } else {
-        stats.streak = 1;
-    }
-    if (stats.streak > stats.longestStreak) {
-        stats.longestStreak = stats.streak;
-    }
-    stats.lastActivityDate = today.toISOString();
-
-    // Check for new achievements
-    stats.achievements = checkAndAwardAchievements(history, stats);
-    
-    localStorage.setItem('gamificationStats', JSON.stringify(stats));
-
-    toast({
-        title: `+${payload.score * (activityType === 'quiz' ? 10 : 1)} XP Earned!`,
-        description: "Your progress has been saved.",
-    });
-};
-
-export const saveQuizResult = (score: number, totalQuestions: number, topic: string) => {
-    updateStatsAndSave('quiz', { topic, score, total: totalQuestions });
-};
-
-export const saveExamResult = (subject: string, score: number, totalMarks: number, grade: string | undefined) => {
-    updateStatsAndSave('exam', { topic: subject, score, total: totalMarks, grade });
-};
+function finiteNonNegative(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+}

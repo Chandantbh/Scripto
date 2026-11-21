@@ -4,6 +4,8 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   BrainCircuit,
+  BookmarkPlus,
+  ChevronDown,
   Loader2,
   Wand2,
   FileText,
@@ -11,9 +13,11 @@ import {
   FileType,
   Download,
   Volume2,
-  Youtube
+  Youtube,
+  Trash2,
 } from 'lucide-react';
 import Image from 'next/image';
+import { SignInButton, useAuth } from '@clerk/nextjs';
 
 import { generateNotes, type GenerateNotesInput } from '@/ai/flows/generate-notes';
 import { generateFromTopic } from '@/ai/flows/generate-from-topic';
@@ -39,6 +43,13 @@ import { textToSpeech } from '@/ai/flows/text-to-speech';
 import AudioPlayer from '@/components/app/audio-player';
 import AIErrorBanner from '@/components/app/ai-error-banner';
 import { getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
+import {
+  deleteSavedNoteAction,
+  getSavedNotesAction,
+  saveNoteAction,
+} from '@/app/actions/user-data';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import type { NoteSourceType, SavedNote } from '@/types/user-data';
 
 type InputMode = 'from-text' | 'from-topic' | 'from-youtube' | 'from-file';
 
@@ -50,6 +61,80 @@ interface GeneratedContent {
   sourceTopic?: string;
 }
 
+function getNoteSourceType(inputMode: InputMode): NoteSourceType {
+  switch (inputMode) {
+    case 'from-topic':
+      return 'topic';
+    case 'from-youtube':
+      return 'youtube';
+    case 'from-file':
+      return 'file';
+    default:
+      return 'text';
+  }
+}
+
+function getInputMode(sourceType: NoteSourceType): InputMode {
+  switch (sourceType) {
+    case 'topic':
+      return 'from-topic';
+    case 'youtube':
+      return 'from-youtube';
+    case 'file':
+      return 'from-file';
+    default:
+      return 'from-text';
+  }
+}
+
+const LOCAL_SAVED_NOTES_KEY = 'savedStudyNotes';
+
+function readLocalSavedNotes(): SavedNote[] {
+  try {
+    const parsed: unknown = JSON.parse(
+      window.localStorage.getItem(LOCAL_SAVED_NOTES_KEY) ?? '[]',
+    );
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (note): note is SavedNote =>
+        typeof note === 'object' &&
+        note !== null &&
+        typeof note.id === 'string' &&
+        typeof note.title === 'string' &&
+        typeof note.content === 'string' &&
+        typeof note.sourceType === 'string' &&
+        typeof note.createdAt === 'string' &&
+        typeof note.updatedAt === 'string',
+    );
+  } catch (error) {
+    console.error('Could not read notes saved on this device.', error);
+    return [];
+  }
+}
+
+function saveLocalNote(note: Omit<SavedNote, 'id' | 'createdAt' | 'updatedAt' | 'localOnly'>): SavedNote {
+  const now = new Date().toISOString();
+  const savedNote: SavedNote = {
+    ...note,
+    id: window.crypto.randomUUID(),
+    createdAt: now,
+    updatedAt: now,
+    localOnly: true,
+  };
+  window.localStorage.setItem(
+    LOCAL_SAVED_NOTES_KEY,
+    JSON.stringify([savedNote, ...readLocalSavedNotes()]),
+  );
+  return savedNote;
+}
+
+function deleteLocalNote(id: string): void {
+  window.localStorage.setItem(
+    LOCAL_SAVED_NOTES_KEY,
+    JSON.stringify(readLocalSavedNotes().filter(note => note.id !== id)),
+  );
+}
+
 export default function NotesPage() {
   const [inputMode, setInputMode] = useState<InputMode>('from-text');
   const [text, setText] = useState('');
@@ -58,8 +143,16 @@ export default function NotesPage() {
   const [generatedContent, setGeneratedContent] = useState<GeneratedContent | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [isSavingNote, setIsSavingNote] = useState(false);
+  const [savedNotes, setSavedNotes] = useState<SavedNote[]>([]);
+  const [isLoadingSavedNotes, setIsLoadingSavedNotes] = useState(true);
+  const [isSavedNotesOpen, setIsSavedNotesOpen] = useState(false);
+  const [showSignInPrompt, setShowSignInPrompt] = useState(false);
+  const [savedNotesError, setSavedNotesError] = useState<string | null>(null);
+  const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const { toast } = useToast();
+  const { isLoaded, isSignedIn } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const generationInProgressRef = useRef(false);
 
@@ -68,6 +161,37 @@ export default function NotesPage() {
 
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const loadSavedNotes = async () => {
+      try {
+        const notes = await getSavedNotesAction();
+        if (active) {
+          const localNotes = readLocalSavedNotes();
+          const accountNotes = notes ?? [];
+          const accountIds = new Set(accountNotes.map(note => note.id));
+          const localOnlyNotes = localNotes.filter(
+            note => note.localOnly && !accountIds.has(note.id),
+          );
+          setSavedNotes(notes === null ? localNotes : [...localOnlyNotes, ...accountNotes]);
+        }
+      } catch (error) {
+        console.error('Could not load saved notes.', error);
+        if (active) {
+          setSavedNotes(readLocalSavedNotes());
+          setSavedNotesError('Account sync is unavailable. Showing notes saved on this device.');
+        }
+      } finally {
+        if (active) setIsLoadingSavedNotes(false);
+      }
+    };
+
+    void loadSavedNotes();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (inputMode === 'from-topic' && generatedContent?.imageHint) {
@@ -129,6 +253,132 @@ export default function NotesPage() {
       });
     } finally {
       setIsExportingPdf(false);
+    }
+  };
+
+  const handleSaveNote = async () => {
+    const notes = generatedContent?.notes;
+    if (!notes || isSavingNote || !isLoaded) return;
+    if (!isSignedIn) {
+      try {
+        const savedNote = saveLocalNote({
+          title: generatedContent.sourceTopic?.trim() || 'Study Notes',
+          content: notes,
+          sourceType: getNoteSourceType(inputMode),
+        });
+        setSavedNotes(current => [savedNote, ...current]);
+        setIsSavedNotesOpen(true);
+        toast({
+          title: 'Saved on This Device',
+          description: 'Sign in to sync this note across your devices.',
+        });
+      } catch (error) {
+        console.error('Could not save note on this device.', error);
+        toast({
+          variant: 'destructive',
+          title: 'Save Failed',
+          description: 'Could not save this note on your device.',
+        });
+      }
+      setShowSignInPrompt(true);
+      return;
+    }
+
+    setIsSavingNote(true);
+    setSavedNotesError(null);
+    try {
+      const savedNote = await saveNoteAction({
+        title: generatedContent.sourceTopic?.trim() || 'Study Notes',
+        content: notes,
+        sourceType: getNoteSourceType(inputMode),
+      });
+      if (!savedNote) {
+        setShowSignInPrompt(true);
+        return;
+      }
+
+      setSavedNotes(current => [savedNote, ...current]);
+      setIsSavedNotesOpen(true);
+      toast({ title: 'Note Saved', description: 'Your note is now available from your account.' });
+    } catch (error) {
+      console.error('Could not save study note.', error);
+      try {
+        const savedNote = saveLocalNote({
+          title: generatedContent.sourceTopic?.trim() || 'Study Notes',
+          content: notes,
+          sourceType: getNoteSourceType(inputMode),
+        });
+        setSavedNotes(current => [savedNote, ...current]);
+        setIsSavedNotesOpen(true);
+        setSavedNotesError('Account sync is unavailable. This note was saved on this device only.');
+        toast({
+          title: 'Saved on This Device',
+          description: 'Account sync is unavailable. You can export this note or try again later.',
+        });
+      } catch (storageError) {
+        console.error('Could not save note on this device.', storageError);
+        toast({
+          variant: 'destructive',
+          title: 'Save Failed',
+          description: 'Could not save this note. Please try again.',
+        });
+      }
+    } finally {
+      setIsSavingNote(false);
+    }
+  };
+
+  const handleOpenSavedNote = (note: SavedNote) => {
+    setInputMode(getInputMode(note.sourceType));
+    setGeneratedContent({ notes: note.content, sourceTopic: note.title });
+    setGenerationError(null);
+    setImageUrl(null);
+    setAudioSrc(null);
+    setShowSignInPrompt(false);
+  };
+
+  const handleExportSavedNote = async (note: SavedNote) => {
+    try {
+      const { exportNotesPdf } = await import('@/lib/export-notes-pdf');
+      exportNotesPdf({ topic: note.title, markdown: note.content });
+      toast({ title: 'PDF Exported', description: 'Your saved notes have been downloaded.' });
+    } catch (error) {
+      console.error('Saved notes PDF export failed.', error);
+      toast({
+        variant: 'destructive',
+        title: 'Export Failed',
+        description: 'Could not create the PDF. Please try again.',
+      });
+    }
+  };
+
+  const handleDeleteSavedNote = async (note: SavedNote) => {
+    setDeletingNoteId(note.id);
+    setSavedNotesError(null);
+    try {
+      if (note.localOnly) {
+        deleteLocalNote(note.id);
+        setSavedNotes(current => current.filter(savedNote => savedNote.id !== note.id));
+        toast({ title: 'Note Deleted', description: 'The note was removed from this device.' });
+        return;
+      }
+      if (!isSignedIn) {
+        setShowSignInPrompt(true);
+        return;
+      }
+
+      const deleted = await deleteSavedNoteAction(note.id);
+      if (!deleted) {
+        setShowSignInPrompt(true);
+        return;
+      }
+      setSavedNotes(current => current.filter(savedNote => savedNote.id !== note.id));
+      toast({ title: 'Note Deleted', description: 'The saved note was removed from your account.' });
+    } catch (error) {
+      console.error('Could not delete saved note.', error);
+      setSavedNotesError('The note could not be deleted. Please try again.');
+    } finally {
+      setDeletingNoteId(null);
     }
   };
   
@@ -273,6 +523,17 @@ export default function NotesPage() {
       </div>
 
       <AIErrorBanner message={generationError} />
+      {showSignInPrompt && (
+        <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted px-4 py-3 text-sm">
+          <span className="text-muted-foreground">Sign in to save notes and access them across devices.</span>
+          <div className="flex items-center gap-2">
+            <SignInButton mode="modal">
+              <Button size="sm">Sign In</Button>
+            </SignInButton>
+            <Button size="sm" variant="ghost" onClick={() => setShowSignInPrompt(false)}>Dismiss</Button>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start flex-1">
         {/* Left panel */}
@@ -370,6 +631,71 @@ export default function NotesPage() {
           </Card>
 
           <AudioPlayer src={audioSrc} onEnded={() => setAudioSrc(null)} />
+
+          <Card>
+            <Collapsible open={isSavedNotesOpen} onOpenChange={setIsSavedNotesOpen}>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <CardTitle>Saved Notes</CardTitle>
+                    <CardDescription>Reopen, export, or delete notes saved to your account or this device.</CardDescription>
+                  </div>
+                  <CollapsibleTrigger asChild>
+                    <Button variant="ghost" size="icon" aria-label={isSavedNotesOpen ? 'Collapse saved notes' : 'Expand saved notes'}>
+                      <ChevronDown className={`h-4 w-4 transition-transform ${isSavedNotesOpen ? 'rotate-180' : ''}`} />
+                    </Button>
+                  </CollapsibleTrigger>
+                </div>
+              </CardHeader>
+              <CollapsibleContent>
+                <CardContent className="space-y-3">
+                  {savedNotesError && (
+                    <p role="status" className="rounded-lg border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">
+                      {savedNotesError}
+                    </p>
+                  )}
+                  {isLoadingSavedNotes ? (
+                    <p className="text-sm text-muted-foreground">Loading saved notes...</p>
+                  ) : savedNotes.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No saved notes yet.</p>
+                  ) : (
+                    savedNotes.map(note => (
+                      <div key={note.id} className="flex flex-col gap-3 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">{note.title}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Saved {new Date(note.createdAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <Button variant="outline" size="sm" onClick={() => handleOpenSavedNote(note)}>
+                            Open
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => handleExportSavedNote(note)}>
+                            <Download className="h-4 w-4" />
+                            PDF
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`Delete ${note.title}`}
+                            disabled={deletingNoteId === note.id}
+                            onClick={() => handleDeleteSavedNote(note)}
+                          >
+                            {deletingNoteId === note.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </CardContent>
+              </CollapsibleContent>
+            </Collapsible>
+          </Card>
         </div>
 
         {/* Right panel */}
@@ -394,6 +720,19 @@ export default function NotesPage() {
                         <Download className="h-4 w-4" />
                       )}
                       Export PDF
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSaveNote}
+                      disabled={isSavingNote || !isLoaded}
+                    >
+                      {isSavingNote ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <BookmarkPlus className="h-4 w-4" />
+                      )}
+                      Save Note
                     </Button>
                     <Button
                       variant="outline"

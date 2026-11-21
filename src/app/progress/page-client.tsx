@@ -19,49 +19,63 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
-
-interface ActivityResult {
-  type: 'quiz' | 'exam';
-  topic: string;
-  score: number;
-  total: number;
-  date: string;
-  grade?: string;
-}
-
-interface GamificationStats {
-    xp: number;
-    streak: number;
-    longestStreak: number;
-    achievements: string[];
-}
+import { clearUserHistoryAction, getUserProgressAction } from '@/app/actions/user-data';
+import {
+  clearLocalProgress,
+  createEmptyGamificationStats,
+  readLocalProgress,
+  type ActivityRecord,
+  type GamificationStats,
+} from '@/lib/gamification';
 
 export default function ProgressPage() {
-  const [activityHistory, setActivityHistory] = useState<ActivityResult[]>([]);
-  const [stats, setStats] = useState<GamificationStats>({ xp: 0, streak: 0, longestStreak: 0, achievements: [] });
+  const [activityHistory, setActivityHistory] = useState<ActivityRecord[]>([]);
+  const [stats, setStats] = useState<GamificationStats>(createEmptyGamificationStats());
   const [isClient, setIsClient] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
+  const [syncWarning, setSyncWarning] = useState(false);
 
   useEffect(() => {
-    setIsClient(true);
-    try {
-        const storedHistory = localStorage.getItem('activityHistory');
-        if (storedHistory) {
-            setActivityHistory(JSON.parse(storedHistory));
-        }
-        const storedStats = localStorage.getItem('gamificationStats');
-        if (storedStats) {
-            setStats(JSON.parse(storedStats));
-        }
-    } catch (error) {
-        console.error("Failed to parse from localStorage", error);
-    }
+    let active = true;
+    const loadProgress = async () => {
+      try {
+        const accountProgress = await getUserProgressAction();
+        if (!active) return;
+        const progress = accountProgress ?? readLocalProgress();
+        setActivityHistory(progress.history);
+        setStats(progress.stats);
+      } catch (error) {
+        console.error('Could not load account progress.', error);
+        if (!active) return;
+        const progress = readLocalProgress();
+        setActivityHistory(progress.history);
+        setStats(progress.stats);
+        setSyncWarning(true);
+      } finally {
+        if (active) setIsClient(true);
+      }
+    };
+
+    void loadProgress();
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const clearHistory = () => {
-    localStorage.removeItem('activityHistory');
-    localStorage.removeItem('gamificationStats');
-    setActivityHistory([]);
-    setStats({ xp: 0, streak: 0, longestStreak: 0, achievements: [] });
+  const clearHistory = async () => {
+    setIsClearing(true);
+    try {
+      await clearUserHistoryAction();
+      clearLocalProgress();
+      setActivityHistory([]);
+      setStats(createEmptyGamificationStats());
+      setSyncWarning(false);
+    } catch (error) {
+      console.error('Could not clear account progress.', error);
+      setSyncWarning(true);
+    } finally {
+      setIsClearing(false);
+    }
   };
   
   const StatCard = ({ icon, label, value, unit }: { icon: React.ElementType, label: string, value: number | string, unit?: string }) => {
@@ -150,6 +164,12 @@ export default function ProgressPage() {
             </div>
         </div>
 
+        {syncWarning && (
+          <div role="status" className="mb-4 rounded-lg border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
+            Account sync is unavailable. Showing progress saved on this device.
+          </div>
+        )}
+
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
             <StatCard icon={Star} label="Total XP" value={stats.xp} unit="XP" />
             <StatCard icon={Flame} label="Current Streak" value={stats.streak} unit="days" />
@@ -180,9 +200,9 @@ export default function ProgressPage() {
               {isClient && activityHistory.length > 0 && (
               <AlertDialog>
                   <AlertDialogTrigger asChild>
-                  <Button variant="destructive" size="sm">
+                  <Button variant="destructive" size="sm" disabled={isClearing}>
                       <Trash2 className="mr-2 h-4 w-4" />
-                      Clear All Data
+                      {isClearing ? 'Clearing...' : 'Clear All Data'}
                   </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>

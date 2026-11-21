@@ -7,6 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { achievements as allAchievements, type Achievement } from '@/lib/achievements';
 import { cn } from '@/lib/utils';
 import * as LucideIcons from 'lucide-react';
+import { getUserProgressAction } from '@/app/actions/user-data';
+import { readLocalProgress } from '@/lib/gamification';
 
 type IconName = keyof typeof LucideIcons;
 
@@ -20,13 +22,29 @@ const AchievementIcon = ({ name, className }: { name: IconName; className?: stri
 export default function AchievementsPage() {
     const [claimedAchievements, setClaimedAchievements] = useState<Set<string>>(new Set());
     const [isClient, setIsClient] = useState(false);
+    const [syncWarning, setSyncWarning] = useState(false);
 
     useEffect(() => {
-        setIsClient(true);
-        const stats = JSON.parse(localStorage.getItem('gamificationStats') || '{}');
-        if (stats.achievements) {
-            setClaimedAchievements(new Set(stats.achievements));
-        }
+        let active = true;
+        const loadAchievements = async () => {
+            try {
+                const accountProgress = await getUserProgressAction();
+                if (!active) return;
+                const progress = accountProgress ?? readLocalProgress();
+                setClaimedAchievements(new Set(progress.stats.achievements));
+            } catch (error) {
+                console.error('Could not load account achievements.', error);
+                if (!active) return;
+                setClaimedAchievements(new Set(readLocalProgress().stats.achievements));
+                setSyncWarning(true);
+            } finally {
+                if (active) setIsClient(true);
+            }
+        };
+        void loadAchievements();
+        return () => {
+            active = false;
+        };
     }, []);
 
     if (!isClient) {
@@ -41,6 +59,11 @@ export default function AchievementsPage() {
                         <p className="text-muted-foreground">Track your accomplishments and milestones.</p>
                     </div>
                 </div>
+                {syncWarning && (
+                    <div role="status" className="mb-4 rounded-lg border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
+                        Account sync is unavailable. Showing achievements saved on this device.
+                    </div>
+                )}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {Array.from({ length: 6 }).map((_, i) => (
                         <Card key={i} className="animate-pulse">
@@ -72,6 +95,12 @@ export default function AchievementsPage() {
                     <p className="text-sm text-muted-foreground">Unlocked</p>
                 </div>
             </div>
+
+            {syncWarning && (
+                <div role="status" className="mb-4 rounded-lg border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
+                    Account sync is unavailable. Showing achievements saved on this device.
+                </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {allAchievements.map((achievement) => {

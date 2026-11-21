@@ -18,8 +18,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { extractTextFromFile } from '@/lib/file-parser';
 import AudioPlayer from '@/components/app/audio-player';
-import { differenceInCalendarDays, isSameWeek } from 'date-fns';
 import { achievements } from '@/lib/achievements';
+import { recordActivityAction } from '@/app/actions/user-data';
+import { recordActivityLocally, type ActivityProgressUpdate, type ActivityInput } from '@/lib/gamification';
 import AIErrorBanner from '@/components/app/ai-error-banner';
 import { getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
 
@@ -151,118 +152,58 @@ export default function QuizPage() {
 
   // Removed unused handleFileUpload
   
-  const checkAndAwardAchievements = (newActivityHistory: any[], currentStats: any) => {
-    const newAchievements = new Set(currentStats.achievements || []);
-    
-    const showAchievementToast = (id: string) => {
-        if (!newAchievements.has(id)) {
-            const achievement = achievements.find(a => a.id === id);
-            if (achievement) {
-                newAchievements.add(id);
-                toast({ title: `Achievement Unlocked: ${achievement.name}!`, description: achievement.description, className: 'bg-accent text-accent-foreground' });
-            }
-        }
-    };
-    
-    const examHistory = newActivityHistory.filter((item: any) => item.type === 'exam');
-    const quizHistory = newActivityHistory.filter((item: any) => item.type === 'quiz');
-
-    // Exam Achievements
-    if (examHistory.length >= 1) showAchievementToast('exam_novice');
-    if (examHistory.length >= 5) showAchievementToast('exam_pro');
-    if (examHistory.length >= 15) showAchievementToast('exam_veteran');
-
-    const lastExam = examHistory[examHistory.length - 1];
-    if (lastExam) {
-        const percentage = lastExam.total > 0 ? (lastExam.score / lastExam.total) * 100 : 0;
-        if (percentage >= 90) showAchievementToast('top_scorer');
-        if (percentage === 100) showAchievementToast('exam_ace');
-        
-        const sameSubjectExams = examHistory.filter((e: any) => e.topic.toLowerCase() === lastExam.topic.toLowerCase());
-        if (sameSubjectExams.length >= 3) showAchievementToast('subject_specialist');
-    }
-
-    // Quiz Achievements
-    if (quizHistory.length >= 1) showAchievementToast('quiz_taker');
-    if (quizHistory.length >= 10) showAchievementToast('quiz_master');
-    if (quizHistory.length >= 25) showAchievementToast('quiz_champion');
-    
-    const lastQuiz = quizHistory[quizHistory.length - 1];
-    if(lastQuiz && lastQuiz.score === lastQuiz.total) {
-        showAchievementToast('perfect_quiz');
-    }
-    
-
-    // Consistency Achievements
-    if (currentStats.streak >= 3) showAchievementToast('scholars_streak_3');
-    if (currentStats.streak >= 7) showAchievementToast('dedicated_learner_7');
-
-    if (examHistory.length >= 3) {
-      const lastThreeExams = examHistory.slice(-3);
-      if (lastThreeExams.every((e: any) => ['A+', 'A'].includes(e.grade))) {
-        showAchievementToast('consistent_performer');
-      }
-    }
-    
-    const today = new Date();
-    const examsThisWeek = examHistory.filter((h: any) => isSameWeek(new Date(h.date), today, { weekStartsOn: 1 }));
-    if (examsThisWeek.length >= 3) showAchievementToast('weekly_warrior');
-    
-    const quizzesThisWeek = quizHistory.filter((h: any) => isSameWeek(new Date(h.date), today, { weekStartsOn: 1 }));
-    if (quizzesThisWeek.length >= 5) showAchievementToast('quiz_whiz');
-
-
-    return Array.from(newAchievements);
-};
-
-
-  const saveQuizResult = (score: number, totalQuestions: number) => {
+  const saveQuizResult = async (score: number, totalQuestions: number) => {
     let resultTopic = 'Custom Content';
     if(inputMode === 'from-topic') resultTopic = topic;
     if(inputMode === 'from-youtube') resultTopic = 'YouTube Video';
-    
-    const result = {
+
+    const activity: ActivityInput = {
       type: 'quiz',
       topic: resultTopic,
       score,
       total: totalQuestions,
-      date: new Date().toISOString(),
     };
-    const history = JSON.parse(localStorage.getItem('activityHistory') || '[]');
-    history.push(result);
-    localStorage.setItem('activityHistory', JSON.stringify(history));
 
-    let stats = JSON.parse(localStorage.getItem('gamificationStats') || '{"xp":0, "streak":0, "longestStreak":0, "lastActivityDate": null, "achievements": []}');
-    
-    stats.xp += score * 10;
-
-    const today = new Date();
-    const lastActivityDate = stats.lastActivityDate ? new Date(stats.lastActivityDate) : null;
-    
-    if (lastActivityDate) {
-        const diffDays = differenceInCalendarDays(today, lastActivityDate);
-        if (diffDays === 1) {
-            stats.streak++;
-        } else if (diffDays > 1) {
-            stats.streak = 1;
-        }
-    } else {
-        stats.streak = 1;
+    let update: Pick<ActivityProgressUpdate, 'earnedXp' | 'newAchievements'> | null = null;
+    let syncUnavailable = false;
+    const saveLocally = () => {
+      try {
+        return recordActivityLocally(activity);
+      } catch (error) {
+        console.error('Could not save quiz activity on this device.', error);
+        toast({
+          variant: 'destructive',
+          title: 'Progress Not Saved',
+          description: 'Could not save this result. Please try again.',
+        });
+        return null;
+      }
+    };
+    try {
+      update = await recordActivityAction(activity);
+      if (!update) update = saveLocally();
+    } catch (error) {
+      console.error('Could not sync quiz activity.', error);
+      syncUnavailable = true;
+      update = saveLocally();
     }
 
-    if (stats.streak > stats.longestStreak) {
-        stats.longestStreak = stats.streak;
-    }
-
-    stats.lastActivityDate = today.toISOString();
-    
-    stats.achievements = checkAndAwardAchievements(history, stats);
-
-    localStorage.setItem('gamificationStats', JSON.stringify(stats));
-
+    if (!update) return;
     toast({
-        title: `+${score * 10} XP Earned!`,
-        description: "Your progress has been saved.",
+      title: `+${update.earnedXp} XP Earned!`,
+      description: syncUnavailable
+        ? 'Progress sync is unavailable; your result was saved on this device.'
+        : 'Your progress has been saved.',
+    });
+    update.newAchievements.forEach(id => {
+      const achievement = achievements.find(item => item.id === id);
+      if (achievement) {
+        toast({
+          title: `Achievement Unlocked: ${achievement.name}!`,
+          description: achievement.description,
+          className: 'bg-accent text-accent-foreground',
+        });
+      }
     });
   }
 
