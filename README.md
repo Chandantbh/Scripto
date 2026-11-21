@@ -2,20 +2,26 @@
 
 **Scripto** is your personal AI-powered study assistant. Transform any text, topic, or video into comprehensive study materials instantly.
 
-![Scripto Banner](src/app/ico.svg)
+**Live demo:** [Open Scripto](https://scripto-gules.vercel.app)
+
+## Screenshots
+
+![Scripto Dark Mode](./public/screenshots/dashboard-dark.png)
+![Scripto Light Mode](./public/screenshots/dashboard-light.png)
 
 ## 🚀 Features
 
 Scripto offers a suite of tools designed to help you learn faster and retain more information:
 
-- **📝 Smart Notes**: Generate structured, comprehensive notes from text, PDFs, or YouTube videos.
-- **🗂️ AI Flashcards**: Automatically create flashcards to test your knowledge and improve retention.
-- **🧠 Quiz Generator**: Generate multiple-choice quizzes with adjustable difficulty levels.
-- **👶 ELI5 (Explain Like I'm 5)**: Simplify complex concepts into easy-to-understand explanations.
+- **📝 Smart Notes**: Generate structured notes from pasted text, a topic, PDFs, DOCX/text files, or YouTube videos.
+- **🗂️ AI Flashcards**: Create flashcards from study material, topics, uploaded files, or YouTube videos.
+- **🧠 Quiz Generator**: Generate multiple-choice quizzes from pasted text, a topic, or a YouTube video.
+- **👶 ELI5 (Explain Like I'm 5)**: Simplify text, uploaded files, images, or YouTube video content, with a selectable explanation difficulty.
 - **🗺️ Concept Maps**: Visualize relationships between topics with interactive concept maps.
-- **🎓 Exam Prep**: Simulate full exams to assess your readiness for upcoming tests.
-- **📊 Progress Tracking**: Track your study streaks, quiz scores, and learning milestones.
-- **🏆 Gamification**: Earn badges and achievements as you master new subjects.
+- **🎓 Exam Prep**: Generate and take practice exams with configurable subjects, marks, and question types.
+- **📊 Progress Tracking**: Track study streaks, XP, quiz and exam scores, and activity history.
+- **🏆 Achievements**: Unlock achievement badges through quiz, exam, and consistency milestones.
+- **📚 Quiz History**: Review past quiz results, scores, and study streak statistics.
 
 ## 🛠️ Tech Stack
 
@@ -41,7 +47,7 @@ Follow these steps to set up the project locally:
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/scripto.git
+   git clone https://github.com/Chandantbh/Scripto.git
    cd scripto
    ```
 
