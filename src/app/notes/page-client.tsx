@@ -36,6 +36,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { extractTextFromFile } from '@/lib/file-parser';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
 import AudioPlayer from '@/components/app/audio-player';
+import AIErrorBanner from '@/components/app/ai-error-banner';
+import { getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
 
 type InputMode = 'from-text' | 'from-topic' | 'from-youtube' | 'from-file';
 
@@ -54,6 +56,7 @@ export default function NotesPage() {
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [generatedContent, setGeneratedContent] = useState<GeneratedContent | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const generationInProgressRef = useRef(false);
@@ -89,25 +92,22 @@ export default function NotesPage() {
   const handlePlayAudio = async (textToPlay: string, id: string) => {
     if (isSynthesizing) return; 
 
+    setGenerationError(null);
     setIsSynthesizing(id);
     setAudioSrc(null);
 
     try {
-      const { audioDataUri } = await textToSpeech({ text: textToPlay });
+      const { audioDataUri } = unwrapAIActionResult(await textToSpeech({ text: textToPlay }));
       setAudioSrc(audioDataUri);
     } catch (error) {
-      console.error('Error synthesizing speech:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Audio Failed',
-        description: 'Could not generate audio for this section.',
-      });
+      setGenerationError(getAIErrorMessage(error));
     } finally {
       setIsSynthesizing(null);
     }
   };
   
   const resetState = () => {
+    setGenerationError(null);
     setGeneratedContent(null);
     setImageUrl(null);
     setAudioSrc(null);
@@ -119,17 +119,18 @@ export default function NotesPage() {
 
     generationInProgressRef.current = true;
     setIsLoading(true);
+    setGenerationError(null);
     resetState();
 
     try {
       let result: GeneratedContent;
       if (inputMode === 'from-topic') {
         if (!topic.trim()) {
-            toast({ variant: 'destructive', title: 'Topic is required.' });
+            setGenerationError('Enter a topic to generate study materials.');
             setIsLoading(false);
             return;
         }
-        const topicResult = await generateFromTopic({ topic });
+        const topicResult = unwrapAIActionResult(await generateFromTopic({ topic }));
         result = {
           notes: topicResult.notes,
           quiz: topicResult.quiz,
@@ -141,14 +142,14 @@ export default function NotesPage() {
         let notesInput: GenerateNotesInput = {};
         if (inputMode === 'from-text') {
             if (!text.trim()) {
-                toast({ variant: 'destructive', title: 'Input Text Required' });
+                setGenerationError('Enter text to generate notes.');
                 setIsLoading(false);
                 return;
             }
             notesInput.text = text;
         } else if (inputMode === 'from-youtube') {
             if (!youtubeUrl.trim()) {
-                toast({ variant: 'destructive', title: 'YouTube URL is required.' });
+                setGenerationError('Enter a YouTube video URL.');
                 setIsLoading(false);
                 return;
             }
@@ -156,31 +157,26 @@ export default function NotesPage() {
         } else if (inputMode === 'from-file') {
              const file = fileInputRef.current?.files?.[0];
              if (!file) {
-                 toast({ variant: 'destructive', title: 'File is required.' });
+                 setGenerationError('Choose a file to generate notes.');
                  setIsLoading(false);
                  return;
              }
              try {
                  const extractedText = await extractTextFromFile(file);
                  if (!extractedText.trim()) {
-                     toast({ variant: 'destructive', title: 'Could not extract text from file.' });
+                     setGenerationError('No readable text was found in the selected file.');
                      setIsLoading(false);
                      return;
                  }
                  notesInput.text = extractedText;
              } catch (error) {
-                 console.error('File upload error:', error);
-                 toast({
-                   variant: 'destructive',
-                   title: 'Import Failed',
-                   description: error instanceof Error ? error.message : 'Could not read the file.',
-                 });
+                 setGenerationError('Could not read the file. Use a supported document no larger than 10 MB.');
                  setIsLoading(false);
                  return;
              }
         }
 
-        const notesResult = await generateNotes(notesInput);
+        const notesResult = unwrapAIActionResult(await generateNotes(notesInput));
         result = {
           notes: notesResult.notes,
         };
@@ -188,12 +184,7 @@ export default function NotesPage() {
 
       setGeneratedContent(result);
     } catch (error) {
-      console.error('Error generating notes:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Generation Failed',
-        description: error instanceof Error ? error.message : 'Could not generate notes.',
-      });
+      setGenerationError(getAIErrorMessage(error));
     } finally {
       generationInProgressRef.current = false;
       setIsLoading(false);
@@ -256,6 +247,8 @@ export default function NotesPage() {
           </div>
       </div>
 
+      <AIErrorBanner message={generationError} />
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start flex-1">
         {/* Left panel */}
         <div className="space-y-6">
@@ -298,6 +291,7 @@ export default function NotesPage() {
                     placeholder="Paste your notes, an article, or any text you want to study..."
                     className="min-h-[250px] text-base"
                     value={text}
+                    maxLength={15000}
                     onChange={e => setText(e.target.value)}
                   />
                 </TabsContent>
@@ -309,6 +303,7 @@ export default function NotesPage() {
                     <Input
                         placeholder="e.g. The history of the Roman Empire"
                         value={topic}
+                        maxLength={200}
                         onChange={e => setTopic(e.target.value)}
                     />
                 </TabsContent>
@@ -320,6 +315,7 @@ export default function NotesPage() {
                     <Input
                         placeholder="https://www.youtube.com/watch?v=..."
                         value={youtubeUrl}
+                        maxLength={2048}
                         onChange={e => setYoutubeUrl(e.target.value)}
                     />
                 </TabsContent>

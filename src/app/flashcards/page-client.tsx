@@ -10,11 +10,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-import { useToast } from '@/hooks/use-toast';
 import FlashcardsDisplay from '@/components/app/flashcards-display';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { extractTextFromFile } from '@/lib/file-parser';
+import AIErrorBanner from '@/components/app/ai-error-banner';
+import { getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
 
 type InputMode = 'text' | 'topic' | 'youtube' | 'file';
 
@@ -33,12 +34,15 @@ export default function FlashcardsPage() {
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [generatedContent, setGeneratedContent] = useState<GeneratedContent | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const { toast } = useToast();
+  const [generationError, setGenerationError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const generationInProgressRef = useRef(false);
 
   const handleGenerate = async () => {
-    
+    if (generationInProgressRef.current) return;
+    generationInProgressRef.current = true;
     setIsLoading(true);
+    setGenerationError(null);
     setGeneratedContent(null);
 
     try {
@@ -46,11 +50,11 @@ export default function FlashcardsPage() {
 
         if (inputMode === 'topic') {
             if (!topic.trim()) {
-                toast({ variant: 'destructive', title: 'Topic is required.' });
+                setGenerationError('Enter a topic to generate flashcards.');
                 setIsLoading(false);
                 return;
             }
-            const topicResult = await generateFromTopic({ topic });
+            const topicResult = unwrapAIActionResult(await generateFromTopic({ topic }));
             result = {
                 flashcards: topicResult.flashcards,
                 notes: topicResult.notes,
@@ -62,14 +66,14 @@ export default function FlashcardsPage() {
             let input: GenerateFlashcardsInput = {};
              if (inputMode === 'text') {
                 if (!text.trim()) {
-                  toast({ variant: 'destructive', title: 'Text is required.' });
+                  setGenerationError('Enter text to generate flashcards.');
                   setIsLoading(false);
                   return;
                 }
                 input.text = text;
             } else if (inputMode === 'youtube') {
                 if (!youtubeUrl.trim()) {
-                  toast({ variant: 'destructive', title: 'YouTube URL is required.' });
+                  setGenerationError('Enter a YouTube video URL.');
                   setIsLoading(false);
                   return;
                 }
@@ -77,36 +81,32 @@ export default function FlashcardsPage() {
             } else if (inputMode === 'file') {
                  const file = fileInputRef.current?.files?.[0];
                  if (!file) {
-                     toast({ variant: 'destructive', title: 'File is required.' });
+                     setGenerationError('Choose a file to generate flashcards.');
                      setIsLoading(false);
                      return;
                  }
                  try {
                      const extractedText = await extractTextFromFile(file);
                      if (!extractedText.trim()) {
-                         toast({ variant: 'destructive', title: 'Could not extract text from file.' });
+                         setGenerationError('No readable text was found in the selected file.');
                          setIsLoading(false);
                          return;
                      }
                     input.text = extractedText;
                  } catch (err) {
-                    toast({ variant: 'destructive', title: 'File parsing failed', description: err instanceof Error ? err.message : 'Unknown error' });
+                    setGenerationError('Could not read the file. Use a supported document no larger than 10 MB.');
                     setIsLoading(false);
                     return;
                 }
             }
-            result = await generateFlashcards(input);
+            result = unwrapAIActionResult(await generateFlashcards(input));
         }
 
       setGeneratedContent(result);
     } catch (error) {
-      console.error('Error generating content:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Generation Failed',
-        description: 'An error occurred while generating your content. Please try again.',
-      });
+      setGenerationError(getAIErrorMessage(error));
     } finally {
+      generationInProgressRef.current = false;
       setIsLoading(false);
     }
   };
@@ -146,10 +146,14 @@ export default function FlashcardsPage() {
           <p className="text-muted-foreground">Create interactive flashcards to memorize key info.</p>
         </div>
       </div>
+      <AIErrorBanner message={generationError} />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
           <div className="space-y-6">
              <Card>
-                <Tabs value={inputMode} onValueChange={(v) => setInputMode(v as InputMode)} className="w-full">
+                <Tabs value={inputMode} onValueChange={(v) => {
+                    setInputMode(v as InputMode);
+                    setGenerationError(null);
+                }} className="w-full">
                     <CardHeader>
                         <TabsList className="grid w-full grid-cols-4">
                             <TabsTrigger value="text"><Layers className="mr-2 h-4 w-4"/>Text</TabsTrigger>
@@ -166,6 +170,7 @@ export default function FlashcardsPage() {
                                 placeholder="Paste your notes, an article, or any text you want to study..."
                                 className="min-h-[250px] text-base"
                                 value={text}
+                                maxLength={15000}
                                 onChange={(e) => setText(e.target.value)}
                             />
                         </TabsContent>
@@ -185,6 +190,7 @@ export default function FlashcardsPage() {
                                 placeholder="e.g., 'The basics of photosynthesis'"
                                 className="text-base h-12"
                                 value={topic}
+                                maxLength={200}
                                 onChange={(e) => setTopic(e.target.value)}
                             />
                         </TabsContent>
@@ -195,6 +201,7 @@ export default function FlashcardsPage() {
                                 type="url"
                                 placeholder="https://www.youtube.com/watch?v=..."
                                 value={youtubeUrl}
+                                maxLength={2048}
                                 onChange={(e) => setYoutubeUrl(e.target.value)}
                             />
                         </TabsContent>

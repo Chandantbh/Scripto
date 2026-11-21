@@ -21,6 +21,8 @@ import { differenceInCalendarDays, isSameWeek } from 'date-fns';
 import { AutoExpandingTextarea } from '@/components/ui/auto-expanding-textarea';
 import { cn } from '@/lib/utils';
 import { achievements } from '@/lib/achievements';
+import AIErrorBanner from '@/components/app/ai-error-banner';
+import { getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
 
 
 const questionTypes = [
@@ -72,10 +74,13 @@ export default function ExamPage() {
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [generatedExam, setGeneratedExam] = useState<GenerateExamOutput | null>(null);
   const [evaluationResult, setEvaluationResult] = useState<EvaluateExamOutput | null>(null);
+  const [generationError, setGenerationError] = useState<string | null>(null);
   const { toast } = useToast();
   
   const examAnswersForm = useForm();
   const formRef = useRef<HTMLFormElement>(null);
+  const generationInProgressRef = useRef(false);
+  const evaluationInProgressRef = useRef(false);
 
   const form = useForm<GenerateExamInput>({
     resolver: zodResolver(GenerateExamInputSchema),
@@ -89,25 +94,24 @@ export default function ExamPage() {
   });
 
   async function onConfigSubmit(values: GenerateExamInput) {
+    if (generationInProgressRef.current) return;
+    generationInProgressRef.current = true;
     setIsLoading(true);
+    setGenerationError(null);
     setGeneratedExam(null);
     setEvaluationResult(null);
 
     try {
-      const result = await generateExam(values);
+      const result = unwrapAIActionResult(await generateExam(values));
       setGeneratedExam(result);
       toast({
         title: 'Exam Generated Successfully!',
         description: 'Your exam paper is ready to be taken.',
       });
     } catch (error) {
-      console.error('Error generating exam:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Exam Generation Failed',
-        description: 'An error occurred while creating your exam. Please check the inputs and try again.',
-      });
+      setGenerationError(getAIErrorMessage(error));
     } finally {
+      generationInProgressRef.current = false;
       setIsLoading(false);
     }
   }
@@ -221,16 +225,18 @@ export default function ExamPage() {
 
 
   async function onExamSubmit(data: any) {
-    if (!generatedExam || isEvaluating) return;
+    if (!generatedExam || evaluationInProgressRef.current) return;
 
+    evaluationInProgressRef.current = true;
     setIsEvaluating(true);
+    setGenerationError(null);
     const userAnswers = generatedExam.questions.map((_, index) => data[`question_${index}`] || '');
 
     try {
-      const result = await evaluateExam({
+      const result = unwrapAIActionResult(await evaluateExam({
         examQuestions: generatedExam.questions,
         userAnswers,
-      });
+      }));
       setEvaluationResult(result);
       saveExamResult(
         form.getValues('subject'), 
@@ -243,13 +249,9 @@ export default function ExamPage() {
         description: "Check out your results and feedback below."
       });
     } catch (error) {
-      console.error('Error evaluating exam:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Evaluation Failed',
-        description: 'An error occurred while evaluating your exam.',
-      });
+      setGenerationError(getAIErrorMessage(error));
     } finally {
+      evaluationInProgressRef.current = false;
       setIsEvaluating(false);
     }
   }
@@ -315,7 +317,7 @@ export default function ExamPage() {
                                                             ))}
                                                         </RadioGroup>
                                                     ) : (
-                                                        <AutoExpandingTextarea placeholder="Your answer..." {...field} className="mt-2" />
+                                                        <AutoExpandingTextarea placeholder="Your answer..." maxLength={2000} {...field} className="mt-2" />
                                                     )}
                                                 </FormControl>
                                                 <FormMessage />
@@ -361,7 +363,7 @@ export default function ExamPage() {
                       <FormItem>
                         <FormLabel>Subject</FormLabel>
                         <FormControl>
-                          <Input placeholder="e.g., Biology" {...field} />
+                          <Input placeholder="e.g., Biology" maxLength={200} {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -374,7 +376,7 @@ export default function ExamPage() {
                       <FormItem>
                         <FormLabel>Class / Grade</FormLabel>
                         <FormControl>
-                          <Input placeholder="e.g., 10th Grade" {...field} />
+                          <Input placeholder="e.g., 10th Grade" maxLength={100} {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -388,7 +390,7 @@ export default function ExamPage() {
                     <FormItem>
                       <FormLabel>Chapters / Topics</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g., Cell Structure, Photosynthesis" {...field} />
+                        <Input placeholder="e.g., Cell Structure, Photosynthesis" maxLength={5000} {...field} />
                       </FormControl>
                       <FormDescription>Separate multiple topics with a comma.</FormDescription>
                       <FormMessage />
@@ -402,7 +404,7 @@ export default function ExamPage() {
                     <FormItem>
                       <FormLabel>Total Marks</FormLabel>
                       <FormControl>
-                        <Input type="number" {...field} onChange={e => field.onChange(parseInt(e.target.value, 10))}/>
+                        <Input type="number" min={1} max={1000} {...field} onChange={e => field.onChange(parseInt(e.target.value, 10))}/>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -476,6 +478,7 @@ export default function ExamPage() {
             <Button variant="secondary" onClick={() => {
                 setGeneratedExam(null);
                 setEvaluationResult(null);
+                setGenerationError(null);
                 form.reset();
                 examAnswersForm.reset();
             }}>
@@ -483,6 +486,8 @@ export default function ExamPage() {
             </Button>
         )}
       </div>
+
+      <AIErrorBanner message={generationError} />
 
        {isLoading && !generatedExam && (
             <div className="flex flex-col justify-center items-center mt-8 gap-4">

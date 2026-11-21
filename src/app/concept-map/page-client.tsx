@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import ReactFlow, {
   Controls,
   Background,
@@ -23,6 +23,8 @@ import { generateConceptMap, type ConceptMapInput, type ConceptMapOutput } from 
 import { useToast } from '@/hooks/use-toast';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
+import AIErrorBanner from '@/components/app/ai-error-banner';
+import { getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
 
 const initialNodes: Node[] = [
   {
@@ -41,7 +43,9 @@ export default function ConceptMapPage() {
   const [topic, setTopic] = useState('');
   const [details, setDetails] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
   const { toast } = useToast();
+  const generationInProgressRef = useRef(false);
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge(params, eds)),
@@ -83,12 +87,15 @@ export default function ConceptMapPage() {
   };
 
   const handleGenerate = async () => {
+    if (generationInProgressRef.current) return;
     if (!topic.trim()) {
-      toast({ variant: 'destructive', title: 'Topic is required.' });
+      setGenerationError('Enter a topic to generate a concept map.');
       return;
     }
 
+    generationInProgressRef.current = true;
     setIsLoading(true);
+    setGenerationError(null);
     try {
       // In a real implementation, we would call the AI service
       // For now we simulate or use the actual flow if available
@@ -97,7 +104,7 @@ export default function ConceptMapPage() {
       // If it returns a raw string/markdown, we'd need to parse it here.
       // Based on file names, it seems to return a structured object.
       
-      const result = await generateConceptMap(input);
+      const result = unwrapAIActionResult(await generateConceptMap(input));
       
       if (result) {
          mapDataToFlowElements(result);
@@ -105,13 +112,9 @@ export default function ConceptMapPage() {
       }
 
     } catch (error) {
-      console.error('Error generating map:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Generation Failed',
-        description: 'Could not generate concept map. Try a different topic.',
-      });
+      setGenerationError(getAIErrorMessage(error));
     } finally {
+      generationInProgressRef.current = false;
       setIsLoading(false);
     }
   };
@@ -153,6 +156,7 @@ export default function ConceptMapPage() {
                 setEdges(initialEdges);
                 setTopic('');
                 setDetails('');
+                setGenerationError(null);
             }}>
                 <RotateCcw className="mr-2 h-4 w-4" />
                 Reset
@@ -164,6 +168,8 @@ export default function ConceptMapPage() {
         </div>
       </div>
 
+      <AIErrorBanner message={generationError} />
+
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-full">
         <Card className="lg:col-span-1 p-4 flex flex-col gap-4 h-fit">
             <div className="space-y-2">
@@ -171,6 +177,7 @@ export default function ConceptMapPage() {
                 <Input 
                     placeholder="e.g. Photosynthesis" 
                     value={topic} 
+                    maxLength={200}
                     onChange={e => setTopic(e.target.value)}
                 />
             </div>
@@ -179,6 +186,7 @@ export default function ConceptMapPage() {
                 <Textarea 
                     placeholder="Focus on specific aspects..." 
                     value={details} 
+                    maxLength={5000}
                     onChange={e => setDetails(e.target.value)}
                     className="min-h-[100px]"
                 />

@@ -20,6 +20,8 @@ import { extractTextFromFile } from '@/lib/file-parser';
 import AudioPlayer from '@/components/app/audio-player';
 import { differenceInCalendarDays, isSameWeek } from 'date-fns';
 import { achievements } from '@/lib/achievements';
+import AIErrorBanner from '@/components/app/ai-error-banner';
+import { getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
 
 type InputMode = 'from-text' | 'from-topic' | 'from-youtube' | 'from-file';
 
@@ -46,8 +48,10 @@ export default function QuizPage() {
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [generatedContent, setGeneratedContent] = useState<GeneratedContent | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const generationInProgressRef = useRef(false);
 
   const [audioSrc, setAudioSrc] = useState<string | null>(null);
   const [isSynthesizing, setIsSynthesizing] = useState<string | null>(null);
@@ -55,37 +59,36 @@ export default function QuizPage() {
   const handlePlayAudio = async (textToPlay: string, id: string) => {
       if (isSynthesizing === id) return;
       
+      setGenerationError(null);
       setIsSynthesizing(id);
       setAudioSrc(null);
 
       try {
-          const { audioDataUri } = await textToSpeech({ text: textToPlay });
+          const { audioDataUri } = unwrapAIActionResult(await textToSpeech({ text: textToPlay }));
           setAudioSrc(audioDataUri);
       } catch (error) {
-          console.error("Error synthesizing speech:", error);
-          toast({
-              variant: 'destructive',
-              title: 'Audio Failed',
-              description: 'Could not generate audio for this question.',
-          });
+          setGenerationError(getAIErrorMessage(error));
       } finally {
           setIsSynthesizing(null);
       }
   };
 
   const handleGenerate = async () => {
+    if (generationInProgressRef.current) return;
+    generationInProgressRef.current = true;
     setIsLoading(true);
+    setGenerationError(null);
     setGeneratedContent(null);
 
     try {
       let result: GeneratedContent;
       if (inputMode === 'from-topic') {
         if (!topic.trim()) {
-            toast({ variant: 'destructive', title: 'Topic is required.' });
+            setGenerationError('Enter a topic to generate a quiz.');
             setIsLoading(false);
             return;
         }
-        const topicResult = await generateFromTopic({ topic });
+        const topicResult = unwrapAIActionResult(await generateFromTopic({ topic }));
         if (topicResult.quiz && topicResult.quiz.questions) {
            result = { 
                 notes: topicResult.notes,
@@ -101,14 +104,14 @@ export default function QuizPage() {
         let quizInput: GenerateQuizInput = {};
         if (inputMode === 'from-text') {
             if (!text.trim()) {
-                toast({ variant: 'destructive', title: 'Text is required.' });
+                setGenerationError('Enter text to generate a quiz.');
                 setIsLoading(false);
                 return;
             }
             quizInput.text = text;
         } else if (inputMode === 'from-youtube') {
             if (!youtubeUrl.trim()) {
-                toast({ variant: 'destructive', title: 'YouTube URL is required.' });
+                setGenerationError('Enter a YouTube video URL.');
                 setIsLoading(false);
                 return;
             }
@@ -116,36 +119,32 @@ export default function QuizPage() {
         } else if (inputMode === 'from-file') {
              const file = fileInputRef.current?.files?.[0];
              if (!file) {
-                 toast({ variant: 'destructive', title: 'File is required.' });
+                 setGenerationError('Choose a file to generate a quiz.');
                  setIsLoading(false);
                  return;
              }
              try {
                  const extractedText = await extractTextFromFile(file);
                  if (!extractedText.trim()) {
-                     toast({ variant: 'destructive', title: 'Could not extract text from file.' });
+                     setGenerationError('No readable text was found in the selected file.');
                      setIsLoading(false);
                      return;
                  }
                 quizInput.text = extractedText;
              } catch (err) {
-                toast({ variant: 'destructive', title: 'File parsing failed', description: err instanceof Error ? err.message : 'Unknown error' });
+                setGenerationError('Could not read the file. Use a supported document no larger than 10 MB.');
                 setIsLoading(false);
                 return;
             }
         }
-        const textResult = await generateQuiz(quizInput);
+        const textResult = unwrapAIActionResult(await generateQuiz(quizInput));
         result = { quiz: { questions: textResult.questions } }
       }
       setGeneratedContent(result);
     } catch (error) {
-      console.error('Error generating content:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Generation Failed',
-        description: 'An error occurred while generating your content. Please try again.',
-      });
+      setGenerationError(getAIErrorMessage(error));
     } finally {
+      generationInProgressRef.current = false;
       setIsLoading(false);
     }
   };
@@ -314,10 +313,14 @@ export default function QuizPage() {
           <p className="text-muted-foreground">Test your knowledge on any topic.</p>
         </div>
       </div>
+       <AIErrorBanner message={generationError} />
        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
           <div className="space-y-6">
             <Card>
-                <Tabs value={inputMode} onValueChange={(v) => setInputMode(v as InputMode)} className="w-full">
+                <Tabs value={inputMode} onValueChange={(v) => {
+                    setInputMode(v as InputMode);
+                    setGenerationError(null);
+                }} className="w-full">
                     <CardHeader>
                         <TabsList className="grid w-full grid-cols-3">
                             <TabsTrigger value="from-text"><FileQuestion className="mr-2"/>Use my text</TabsTrigger>
@@ -333,6 +336,7 @@ export default function QuizPage() {
                                 placeholder="Paste your notes, an article, or any text you want to study..."
                                 className="min-h-[250px] text-base"
                                 value={text}
+                                maxLength={15000}
                                 onChange={(e) => setText(e.target.value)}
                             />
                         </TabsContent>
@@ -343,6 +347,7 @@ export default function QuizPage() {
                                 placeholder="e.g., 'The basics of photosynthesis'"
                                 className="text-base h-12"
                                 value={topic}
+                                maxLength={200}
                                 onChange={(e) => setTopic(e.target.value)}
                             />
                         </TabsContent>
@@ -353,6 +358,7 @@ export default function QuizPage() {
                                 type="url"
                                 placeholder="https://www.youtube.com/watch?v=..."
                                 value={youtubeUrl}
+                                maxLength={2048}
                                 onChange={(e) => setYoutubeUrl(e.target.value)}
                             />
                         </TabsContent>

@@ -6,7 +6,6 @@ import { explainLikeImFive, type ExplainLikeImFiveOutput, type ExplainLikeImFive
 import { extractTextFromFile } from '@/lib/file-parser';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { useToast } from '@/hooks/use-toast';
 import NotesDisplay from '@/components/app/notes-display';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
@@ -14,9 +13,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import AIErrorBanner from '@/components/app/ai-error-banner';
+import { AIActionFailure, getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
 
 type Difficulty = 'easy' | 'medium' | 'hard';
 type InputMode = 'text' | 'file' | 'image' | 'youtube';
+
+class InputSelectionError extends Error {}
 
 const fileToDataURL = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -27,6 +30,8 @@ const fileToDataURL = (file: File): Promise<string> => {
     });
 };
 
+const MAX_IMAGE_UPLOAD_BYTES = 512 * 1024;
+
 export default function Eli5Page() {
   const [inputText, setInputText] = useState('');
   const [youtubeUrl, setYoutubeUrl] = useState('');
@@ -35,75 +40,64 @@ export default function Eli5Page() {
   
   const [generatedContent, setGeneratedContent] = useState<ExplainLikeImFiveOutput | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const { toast } = useToast();
+  const [generationError, setGenerationError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
+  const generationInProgressRef = useRef(false);
 
   const handleGenerate = async () => {
-    let input: ExplainLikeImFiveInput = { difficulty };
-    
-    switch (inputMode) {
-      case 'text':
-        if (!inputText.trim()) {
-          toast({ variant: 'destructive', title: 'Text is required.' });
-          return;
-        }
-        input.text = inputText;
-        break;
-      case 'file':
-        const docFile = docInputRef.current?.files?.[0];
-        if (!docFile) {
-            toast({ variant: 'destructive', title: 'A document file is required.' });
-            return;
-        }
-        try {
-            const extractedText = await extractTextFromFile(docFile);
-            if (!extractedText.trim()) {
-                toast({ variant: 'destructive', title: 'Could not extract text from file.' });
-                return;
-            }
-            input.text = extractedText;
-        } catch (err) {
-            toast({ variant: 'destructive', title: 'Failed to read file', description: err instanceof Error ? err.message : 'Unknown error' });
-            return;
-        }
-        break;
-      case 'youtube':
-        if (!youtubeUrl.trim()) {
-          toast({ variant: 'destructive', title: 'YouTube URL is required.' });
-          return;
-        }
-        input.youtubeUrl = youtubeUrl;
-        break;
-      case 'image':
-        const file = fileInputRef.current?.files?.[0];
-        if (!file) {
-          toast({ variant: 'destructive', title: 'An image file is required.' });
-          return;
-        }
-        if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-          toast({ variant: 'destructive', title: 'Unsupported file type. Please upload a PNG or JPG.' });
-          return;
-        }
-        input.imageDataUri = await fileToDataURL(file);
-        break;
-    }
-
-
+    if (generationInProgressRef.current) return;
+    generationInProgressRef.current = true;
     setIsLoading(true);
+    setGenerationError(null);
     setGeneratedContent(null);
 
     try {
-      const result = await explainLikeImFive(input);
-      setGeneratedContent(result);
+      let input: ExplainLikeImFiveInput = { difficulty };
+
+      switch (inputMode) {
+        case 'text':
+          input.text = inputText;
+          break;
+        case 'file': {
+          const docFile = docInputRef.current?.files?.[0];
+          if (!docFile) throw new InputSelectionError('Choose a document file first.');
+          let extractedText: string;
+          try {
+            extractedText = await extractTextFromFile(docFile);
+          } catch {
+            throw new InputSelectionError('Could not read the file. Use a supported document no larger than 10 MB.');
+          }
+          if (!extractedText.trim()) throw new InputSelectionError('No readable text was found in the selected file.');
+          input.text = extractedText;
+          break;
+        }
+        case 'youtube':
+          input.youtubeUrl = youtubeUrl;
+          break;
+        case 'image': {
+          const file = fileInputRef.current?.files?.[0];
+          if (!file) throw new InputSelectionError('Choose an image file first.');
+          if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+            throw new InputSelectionError('Use a JPG, PNG, or WebP image.');
+          }
+          if (file.size === 0 || file.size > MAX_IMAGE_UPLOAD_BYTES) {
+            throw new InputSelectionError('Images must be non-empty and 512 KB or smaller.');
+          }
+          input.imageDataUri = await fileToDataURL(file);
+          break;
+        }
+      }
+
+      setGeneratedContent(unwrapAIActionResult(await explainLikeImFive(input)));
     } catch (error) {
-      console.error('Error generating explanation:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Generation Failed',
-        description: 'An error occurred while generating your explanation. Please try again.',
-      });
+      setGenerationError(error instanceof InputSelectionError
+        ? error.message
+        : error instanceof AIActionFailure
+          ? error.message
+          : getAIErrorMessage(error));
     } finally {
+      generationInProgressRef.current = false;
       setIsLoading(false);
     }
   };
@@ -152,12 +146,16 @@ export default function Eli5Page() {
           <p className="text-muted-foreground">Get a tailored explanation for any topic from any source.</p>
         </div>
       </div>
+      <AIErrorBanner message={generationError} />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
         <div className="space-y-6">
           <Card>
             <Tabs
               value={inputMode}
-              onValueChange={(value) => setInputMode(value as InputMode)}
+              onValueChange={(value) => {
+                setInputMode(value as InputMode);
+                setGenerationError(null);
+              }}
               className="w-full"
             >
               <CardHeader>
@@ -174,6 +172,7 @@ export default function Eli5Page() {
                     <Textarea
                         placeholder="Paste text here to explain..."
                         value={inputText}
+                        maxLength={15000}
                         onChange={(e) => setInputText(e.target.value)}
                         className="min-h-[200px]"
                     />
@@ -198,6 +197,7 @@ export default function Eli5Page() {
                         type="url"
                         placeholder="https://www.youtube.com/watch?v=..."
                         value={youtubeUrl}
+                        maxLength={2048}
                         onChange={(e) => setYoutubeUrl(e.target.value)}
                     />
                     <p className="text-xs text-muted-foreground mt-2">Enter a YouTube video URL to explain its content.</p>
