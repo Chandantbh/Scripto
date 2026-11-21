@@ -4,7 +4,7 @@
 
 @layer base {
   :root {
-    --background: 210 40% 98%; /* #F9FAFB */
+    --background: 220 33% 98%; /* #F8FAFC */
     --foreground: 215 28% 17%; /* #1F2937 */
     --card: 0 0% 100%;
     --card-foreground: 215 28% 17%;
@@ -33,7 +33,7 @@
   }
 
   .dark {
-    --background: 222 47% 11%; /* #0F172A */
+    --background: 222 47% 7%; /* #090D16 */
     --foreground: 0 0% 100%; /* #FFFFFF */
     --card: 222 47% 11%;
     --card-foreground: 0 0% 100%;
@@ -61,6 +61,11 @@
   }
   body {
     @apply bg-background text-foreground;
+    background-image:
+      radial-gradient(ellipse at 12% 0%, hsl(var(--primary) / 0.08), transparent 34rem),
+      radial-gradient(ellipse at 92% 18%, hsl(var(--primary) / 0.05), transparent 30rem);
+    background-attachment: fixed;
+    transition: background-color 200ms ease, color 200ms ease;
   }
   .prose {
     @apply text-foreground max-w-none;
@@ -68,6 +73,12 @@
     @apply prose-a:text-primary hover:prose-a:text-primary/80;
     @apply prose-blockquote:text-muted-foreground prose-blockquote:border-primary;
     @apply prose-code:text-foreground prose-code:bg-muted prose-code:p-1 prose-code:rounded-sm;
+  }
+}
+
+@layer utilities {
+  .glass-surface {
+    @apply border-slate-200/80 bg-white/70 backdrop-blur-md dark:border-white/10 dark:bg-slate-900/60 dark:backdrop-blur-xl;
   }
 }
 
