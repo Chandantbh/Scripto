@@ -10,13 +10,18 @@
 
 import {ai} from '@/ai/genkit';
 import {generateWithModelFallback} from '@/ai/model-retry';
+import {executeAIAction} from '@/ai/action-guard';
+import {AIInputError} from '@/ai/errors';
+import {MAX_AI_TEXT_CHARACTERS} from '@/ai/generation-limits';
 import { getYouTubeTranscript } from '@/services/youtube';
 import {z} from 'genkit';
+import {type AIActionResult} from '@/types/ai-action';
 
 const GenerateQuizInputSchema = z.object({
-  text: z.string().optional().describe('The text to generate a quiz from.'),
-  youtubeUrl: z.string().optional().describe('A YouTube video URL to generate a quiz from.'),
-});
+  text: z.string().trim().min(1).max(MAX_AI_TEXT_CHARACTERS).optional().describe('The text to generate a quiz from.'),
+  youtubeUrl: z.string().trim().min(1).max(2_048).optional().describe('A YouTube video URL to generate a quiz from.'),
+}).refine(input => Boolean(input.text || input.youtubeUrl), 'Provide text or a YouTube URL.')
+  .refine(input => !(input.text && input.youtubeUrl), 'Provide only one content source.');
 export type GenerateQuizInput = z.infer<typeof GenerateQuizInputSchema>;
 
 const QuizQuestionSchema = z.object({
@@ -31,8 +36,8 @@ const GenerateQuizOutputSchema = z.object({
 });
 export type GenerateQuizOutput = z.infer<typeof GenerateQuizOutputSchema>;
 
-export async function generateQuiz(input: GenerateQuizInput): Promise<GenerateQuizOutput> {
-  return generateQuizFlow(input);
+export async function generateQuiz(input: GenerateQuizInput): Promise<AIActionResult<GenerateQuizOutput>> {
+  return executeAIAction('generateQuiz', input, GenerateQuizInputSchema, generateQuizFlow);
 }
 
 const prompt = ai.definePrompt({
@@ -52,16 +57,11 @@ const generateQuizFlow = ai.defineFlow(
     let content = input.text || '';
 
     if (input.youtubeUrl) {
-      try {
-        content = await getYouTubeTranscript(input.youtubeUrl);
-      } catch (e) {
-        console.error("Failed to get YouTube transcript", e);
-        throw new Error("Could not get transcript for the provided YouTube URL. The video might not have subtitles enabled.");
-      }
+      content = await getYouTubeTranscript(input.youtubeUrl);
     }
 
-    if (!content) {
-      throw new Error("No content provided to generate a quiz.");
+    if (!content.trim()) {
+      throw new AIInputError('No usable content was found. Please check the source and try again.');
     }
 
     const {output} = await generateWithModelFallback(model =>

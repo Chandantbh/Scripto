@@ -7,10 +7,12 @@
 
 import { ai } from '@/ai/genkit';
 import { generateWithModelFallback } from '@/ai/model-retry';
+import { executeAIAction } from '@/ai/action-guard';
 import { GenerateExamInputSchema, type GenerateExamInput, GenerateExamOutputSchema, type GenerateExamOutput } from '@/ai/schemas/exam-schemas';
+import { type AIActionResult } from '@/types/ai-action';
 
-export async function generateExam(input: GenerateExamInput): Promise<GenerateExamOutput> {
-  return generateExamFlow(input);
+export async function generateExam(input: GenerateExamInput): Promise<AIActionResult<GenerateExamOutput>> {
+  return executeAIAction('generateExam', input, GenerateExamInputSchema, generateExamFlow);
 }
 
 const prompt = ai.definePrompt({

@@ -9,12 +9,15 @@
  */
 
 import {ai} from '@/ai/genkit';
+import {executeAIAction} from '@/ai/action-guard';
+import {MAX_AI_TEXT_CHARACTERS} from '@/ai/generation-limits';
 import {z} from 'genkit';
 import wav from 'wav';
 import { googleAI } from '@genkit-ai/googleai';
+import {type AIActionResult} from '@/types/ai-action';
 
 const TextToSpeechInputSchema = z.object({
-  text: z.string().describe('The text to convert to speech.'),
+  text: z.string().trim().min(1).max(MAX_AI_TEXT_CHARACTERS).describe('The text to convert to speech.'),
 });
 export type TextToSpeechInput = z.infer<typeof TextToSpeechInputSchema>;
 
@@ -24,8 +27,8 @@ const TextToSpeechOutputSchema = z.object({
 export type TextToSpeechOutput = z.infer<typeof TextToSpeechOutputSchema>;
 
 
-export async function textToSpeech(input: TextToSpeechInput): Promise<TextToSpeechOutput> {
-    return textToSpeechFlow(input);
+export async function textToSpeech(input: TextToSpeechInput): Promise<AIActionResult<TextToSpeechOutput>> {
+    return executeAIAction('textToSpeech', input, TextToSpeechInputSchema, textToSpeechFlow);
 }
 
 async function toWav(

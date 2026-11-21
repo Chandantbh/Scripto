@@ -9,10 +9,12 @@
  */
 
 import { ai } from '@/ai/genkit';
+import { executeAIAction } from '@/ai/action-guard';
 import { z } from 'genkit';
+import { type AIActionResult } from '@/types/ai-action';
 
 const GenerateImageInputSchema = z.object({
-  prompt: z.string().describe('The text prompt for image generation.'),
+  prompt: z.string().trim().min(1).max(2_000).describe('The text prompt for image generation.'),
 });
 export type GenerateImageInput = z.infer<typeof GenerateImageInputSchema>;
 
@@ -21,8 +23,8 @@ const GenerateImageOutputSchema = z.object({
 });
 export type GenerateImageOutput = z.infer<typeof GenerateImageOutputSchema>;
 
-export async function generateImage(input: GenerateImageInput): Promise<GenerateImageOutput> {
-  return generateImageFlow(input);
+export async function generateImage(input: GenerateImageInput): Promise<AIActionResult<GenerateImageOutput>> {
+  return executeAIAction('generateImage', input, GenerateImageInputSchema, generateImageFlow);
 }
 
 const generateImageFlow = ai.defineFlow(

@@ -1,7 +1,8 @@
-// src/services/youtube.ts
-'use server';
+import 'server-only';
 
 import TranscriptClient from 'youtube-transcript-api';
+import {AIInputError} from '@/ai/errors';
+import {MAX_AI_TEXT_CHARACTERS} from '@/ai/generation-limits';
 
 /**
  * Extracts the YouTube video ID from a URL.
@@ -11,7 +12,7 @@ import TranscriptClient from 'youtube-transcript-api';
  */
 function extractVideoId(url: string): string {
   const match = url.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
-  if (!match) throw new Error(`Invalid YouTube URL or ID: ${url}`);
+  if (!match) throw new AIInputError('Enter a valid YouTube video URL.');
   return match[1];
 }
 
@@ -33,15 +34,27 @@ export async function getYouTubeTranscript(url: string): Promise<string> {
     await client.ready;
   }
 
+  let result;
   try {
-    const result = await client.getTranscript(videoId);
-    if (!result || !result.transcript || result.transcript.length === 0) {
-      console.warn('No transcript found for:', videoId);
-      return '';
-    }
-    return result.transcript.map(s => s.text).join(' ');
-  } catch (err: any) {
-    console.error(`Transcript fetch failed for ${videoId}:`, err);
-    return '';
+    result = await client.getTranscript(videoId);
+  } catch (error) {
+    console.error('YouTube transcript retrieval failed.', error);
+    throw new AIInputError('A transcript could not be retrieved for this video.');
   }
+
+  if (!result?.transcript?.length) {
+    throw new AIInputError('No transcript was found for this video.');
+  }
+
+  const transcriptParts: string[] = [];
+  let transcriptLength = 0;
+  for (const segment of result.transcript) {
+    transcriptLength += segment.text.length;
+    if (transcriptLength > MAX_AI_TEXT_CHARACTERS) {
+      throw new AIInputError(`Video transcripts must be ${MAX_AI_TEXT_CHARACTERS.toLocaleString()} characters or fewer.`);
+    }
+    transcriptParts.push(segment.text);
+  }
+
+  return transcriptParts.join(' ');
 }

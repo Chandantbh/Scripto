@@ -4,6 +4,8 @@
 import * as pdfjs from 'pdfjs-dist';
 import mammoth from 'mammoth';
 
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
 // Set the workerSrc for pdfjs-dist. This is necessary for it to work in a browser environment.
 // We are using a CDN for simplicity.
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -15,6 +17,13 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/b
  * @returns A promise that resolves with the extracted text content.
  */
 export async function extractTextFromFile(file: File): Promise<string> {
+    if (file.size === 0) {
+        throw new Error('The selected file is empty.');
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+        throw new Error('Files must be 10 MB or smaller.');
+    }
+
     if (file.type === 'application/pdf') {
         return extractTextFromPdf(file);
     } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || file.name.endsWith('.docx')) {

@@ -11,6 +11,10 @@
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 import { getYouTubeTranscript } from '@/services/youtube';
+import {executeAIAction} from '@/ai/action-guard';
+import {AIInputError} from '@/ai/errors';
+import {MAX_AI_TEXT_CHARACTERS} from '@/ai/generation-limits';
+import {type AIActionResult} from '@/types/ai-action';
 
 const ConceptSchema = z.object({
   id: z.string().describe('A unique identifier for the concept (e.g., "concept-1").'),
@@ -25,7 +29,7 @@ const RelationshipSchema = z.object({
 });
 
 const AnalyzeContentInputSchema = z.object({
-  text: z.string().optional().describe('The text content to analyze.'),
+  text: z.string().trim().min(1).max(MAX_AI_TEXT_CHARACTERS).optional().describe('The text content to analyze.'),
   imageDataUri: z
     .string()
     .optional()
@@ -38,8 +42,11 @@ const AnalyzeContentInputSchema = z.object({
     .describe(
       "An audio file for speech-to-text, as a data URI that must include a MIME type and use Base64 encoding."
     ),
-  youtubeUrl: z.string().optional().describe('A YouTube video URL to summarize and analyze.'),
-});
+  youtubeUrl: z.string().trim().min(1).max(2_048).optional().describe('A YouTube video URL to summarize and analyze.'),
+}).refine(
+  input => Boolean(input.text || input.imageDataUri || input.audioDataUri || input.youtubeUrl),
+  'Provide text, media, or a YouTube URL.'
+);
 
 export type AnalyzeContentInput = z.infer<typeof AnalyzeContentInputSchema>;
 
@@ -70,8 +77,8 @@ const analysisPrompt = ai.definePrompt({
 });
 
 
-export async function analyzeContent(input: AnalyzeContentInput): Promise<AnalyzeContentOutput> {
-  return analyzeContentFlow(input);
+export async function analyzeContent(input: AnalyzeContentInput): Promise<AIActionResult<AnalyzeContentOutput>> {
+  return executeAIAction('analyzeContent', input, AnalyzeContentInputSchema, analyzeContentFlow);
 }
 
 
@@ -85,15 +92,12 @@ const analyzeContentFlow = ai.defineFlow(
     let processedInput = { ...input };
 
     if (input.youtubeUrl) {
-      try {
-        const transcript = await getYouTubeTranscript(input.youtubeUrl);
-        // Replace youtubeUrl with the transcript text for the prompt
-        processedInput.text = transcript;
-        processedInput.youtubeUrl = undefined; // Clear the URL
-      } catch (e) {
-        console.error("Failed to get YouTube transcript", e);
-        throw new Error("Could not get transcript for the provided YouTube URL. The video might not have subtitles enabled.");
+      const transcript = await getYouTubeTranscript(input.youtubeUrl);
+      if (!transcript.trim()) {
+        throw new AIInputError('No usable transcript was found for this video.');
       }
+      processedInput.text = transcript;
+      processedInput.youtubeUrl = undefined;
     }
     
     const { output } = await analysisPrompt(processedInput);

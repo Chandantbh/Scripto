@@ -11,13 +11,18 @@
 
 import {ai} from '@/ai/genkit';
 import {generateWithModelFallback} from '@/ai/model-retry';
+import {executeAIAction} from '@/ai/action-guard';
+import {AIInputError} from '@/ai/errors';
+import {MAX_AI_TEXT_CHARACTERS} from '@/ai/generation-limits';
 import { getYouTubeTranscript } from '@/services/youtube';
 import {z} from 'genkit';
+import {type AIActionResult} from '@/types/ai-action';
 
 const GenerateNotesInputSchema = z.object({
-  text: z.string().optional().describe('The text to generate notes from.'),
-  youtubeUrl: z.string().optional().describe('A YouTube video URL to generate notes from.'),
-});
+  text: z.string().trim().min(1).max(MAX_AI_TEXT_CHARACTERS).optional().describe('The text to generate notes from.'),
+  youtubeUrl: z.string().trim().min(1).max(2_048).optional().describe('A YouTube video URL to generate notes from.'),
+}).refine(input => Boolean(input.text || input.youtubeUrl), 'Provide text or a YouTube URL.')
+  .refine(input => !(input.text && input.youtubeUrl), 'Provide only one content source.');
 export type GenerateNotesInput = z.infer<typeof GenerateNotesInputSchema>;
 
 const GenerateNotesOutputSchema = z.object({
@@ -25,8 +30,8 @@ const GenerateNotesOutputSchema = z.object({
 });
 export type GenerateNotesOutput = z.infer<typeof GenerateNotesOutputSchema>;
 
-export async function generateNotes(input: GenerateNotesInput): Promise<GenerateNotesOutput> {
-  return generateNotesFlow(input);
+export async function generateNotes(input: GenerateNotesInput): Promise<AIActionResult<GenerateNotesOutput>> {
+  return executeAIAction('generateNotes', input, GenerateNotesInputSchema, generateNotesFlow);
 }
 
 const generateNotesPrompt = ai.definePrompt({
@@ -50,19 +55,11 @@ const generateNotesFlow = ai.defineFlow(
     let content = input.text || '';
     
     if (input.youtubeUrl) {
-        try {
-            content = await getYouTubeTranscript(input.youtubeUrl);
-        } catch (e) {
-            console.error("Failed to get YouTube transcript", e);
-            if (e instanceof Error) {
-                throw new Error(e.message);
-            }
-            throw new Error("An unknown error occurred while fetching the YouTube transcript.");
-        }
+      content = await getYouTubeTranscript(input.youtubeUrl);
     }
 
-    if (!content) {
-        throw new Error("No content provided to generate notes.");
+    if (!content.trim()) {
+      throw new AIInputError('No usable content was found. Please check the source and try again.');
     }
     
     const {output} = await generateWithModelFallback(model =>

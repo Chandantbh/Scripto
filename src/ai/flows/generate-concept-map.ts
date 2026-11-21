@@ -1,29 +1,32 @@
 'use server';
 
+import {executeAIAction} from '@/ai/action-guard';
 import { z } from 'genkit';
 import { ai } from '@/ai/genkit';
+import {MAX_TOPIC_CHARACTERS} from '@/ai/generation-limits';
+import {type AIActionResult} from '@/types/ai-action';
 
-export const ConceptMapInputSchema = z.object({
-  topic: z.string(),
-  additionalDetails: z.string().optional(),
-});
+const ConceptMapInputSchema = z.object({
+  topic: z.string().trim().min(1).max(MAX_TOPIC_CHARACTERS),
+  additionalDetails: z.string().trim().max(5_000).optional(),
+}).refine(input => !input.additionalDetails || input.additionalDetails.length > 0, 'Additional details cannot be blank.');
 export type ConceptMapInput = z.infer<typeof ConceptMapInputSchema>;
 
-export const ConceptMapNodeSchema = z.object({
+const ConceptMapNodeSchema = z.object({
   id: z.string(),
   label: z.string(),
   description: z.string().optional(),
 });
 
-export const ConceptMapRelationshipSchema = z.object({
+const ConceptMapRelationshipSchema = z.object({
   source: z.string(),
   target: z.string(),
   relation: z.string(),
 });
 
-export const ConceptMapOutputSchema = z.object({
-  concepts: z.array(ConceptMapNodeSchema),
-  relationships: z.array(ConceptMapRelationshipSchema),
+const ConceptMapOutputSchema = z.object({
+  concepts: z.array(ConceptMapNodeSchema).max(100),
+  relationships: z.array(ConceptMapRelationshipSchema).max(200),
 });
 export type ConceptMapOutput = z.infer<typeof ConceptMapOutputSchema>;
 
@@ -42,7 +45,7 @@ const generateConceptMapPrompt = ai.definePrompt({
     Ensure the IDs are unique simple strings (e.g. "c1", "c2").`
 });
 
-export const generateConceptMap = ai.defineFlow({
+const generateConceptMapFlow = ai.defineFlow({
     name: 'generateConceptMapFlow',
     inputSchema: ConceptMapInputSchema,
     outputSchema: ConceptMapOutputSchema,
@@ -53,3 +56,7 @@ export const generateConceptMap = ai.defineFlow({
     }
     return result.output;
 });
+
+export async function generateConceptMap(input: ConceptMapInput): Promise<AIActionResult<ConceptMapOutput>> {
+  return executeAIAction('generateConceptMap', input, ConceptMapInputSchema, generateConceptMapFlow);
+}

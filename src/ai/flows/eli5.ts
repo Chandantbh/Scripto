@@ -10,19 +10,25 @@
 
 import {ai} from '@/ai/genkit';
 import {generateWithModelFallback} from '@/ai/model-retry';
+import {executeAIAction} from '@/ai/action-guard';
+import {MAX_AI_TEXT_CHARACTERS} from '@/ai/generation-limits';
 import {z} from 'genkit';
+import {type AIActionResult} from '@/types/ai-action';
 
 const ExplainLikeImFiveInputSchema = z.object({
-  text: z.string().optional().describe('The text content to explain.'),
+  text: z.string().trim().min(1).max(MAX_AI_TEXT_CHARACTERS).optional().describe('The text content to explain.'),
   imageDataUri: z
     .string()
     .optional()
     .describe(
       "An image for OCR analysis, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'"
     ),
-  youtubeUrl: z.string().optional().describe('A YouTube video URL to summarize and explain.'),
+  youtubeUrl: z.string().trim().min(1).max(2_048).optional().describe('A YouTube video URL to summarize and explain.'),
   difficulty: z.enum(['easy', 'medium', 'hard']).default('easy').describe("The difficulty level for the explanation. 'easy' is for a 5-year-old.")
-});
+}).refine(
+  input => Boolean(input.text || input.imageDataUri || input.youtubeUrl),
+  'Provide text, an image, or a YouTube URL.'
+);
 export type ExplainLikeImFiveInput = z.infer<typeof ExplainLikeImFiveInputSchema>;
 
 const ExplainLikeImFiveOutputSchema = z.object({
@@ -31,8 +37,8 @@ const ExplainLikeImFiveOutputSchema = z.object({
 });
 export type ExplainLikeImFiveOutput = z.infer<typeof ExplainLikeImFiveOutputSchema>;
 
-export async function explainLikeImFive(input: ExplainLikeImFiveInput): Promise<ExplainLikeImFiveOutput> {
-    return eli5Flow(input);
+export async function explainLikeImFive(input: ExplainLikeImFiveInput): Promise<AIActionResult<ExplainLikeImFiveOutput>> {
+    return executeAIAction('explainLikeImFive', input, ExplainLikeImFiveInputSchema, eli5Flow);
 }
 
 const generateContentPrompt = ai.definePrompt({

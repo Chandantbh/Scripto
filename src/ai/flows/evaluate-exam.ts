@@ -7,15 +7,17 @@
 
 import { ai } from '@/ai/genkit';
 import { generateWithModelFallback } from '@/ai/model-retry';
+import { executeAIAction } from '@/ai/action-guard';
 import {
   EvaluateExamInputSchema,
   type EvaluateExamInput,
   EvaluateExamOutputSchema,
   type EvaluateExamOutput,
 } from '@/ai/schemas/evaluation-schemas';
+import { type AIActionResult } from '@/types/ai-action';
 
-export async function evaluateExam(input: EvaluateExamInput): Promise<EvaluateExamOutput> {
-  return evaluateExamFlow(input);
+export async function evaluateExam(input: EvaluateExamInput): Promise<AIActionResult<EvaluateExamOutput>> {
+  return executeAIAction('evaluateExam', input, EvaluateExamInputSchema, evaluateExamFlow);
 }
 
 const getGrade = (score: number, totalMarks: number): string => {

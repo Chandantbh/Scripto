@@ -10,11 +10,13 @@
 
 import {ai} from '@/ai/genkit';
 import {generateWithModelFallback} from '@/ai/model-retry';
+import {executeAIAction} from '@/ai/action-guard';
 import {MAX_FLASHCARDS, MAX_TOPIC_CHARACTERS} from '@/ai/generation-limits';
 import {z} from 'genkit';
+import {type AIActionResult} from '@/types/ai-action';
 
 const GenerateFromTopicInputSchema = z.object({
-  topic: z.string().max(
+  topic: z.string().trim().min(1).max(
     MAX_TOPIC_CHARACTERS,
     `Topic must be ${MAX_TOPIC_CHARACTERS} characters or fewer.`
   ).describe('The topic to generate study materials for.'),
@@ -45,8 +47,8 @@ const GenerateFromTopicOutputSchema = z.object({
 });
 export type GenerateFromTopicOutput = z.infer<typeof GenerateFromTopicOutputSchema>;
 
-export async function generateFromTopic(input: GenerateFromTopicInput): Promise<GenerateFromTopicOutput> {
-  return generateFromTopicFlow(input);
+export async function generateFromTopic(input: GenerateFromTopicInput): Promise<AIActionResult<GenerateFromTopicOutput>> {
+  return executeAIAction('generateFromTopic', input, GenerateFromTopicInputSchema, generateFromTopicFlow);
 }
 
 const generateContentPrompt = ai.definePrompt({
