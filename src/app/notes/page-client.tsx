@@ -9,6 +9,7 @@ import {
   FileText,
   BookOpen,
   FileType,
+  Download,
   Volume2,
   Youtube
 } from 'lucide-react';
@@ -56,6 +57,7 @@ export default function NotesPage() {
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [generatedContent, setGeneratedContent] = useState<GeneratedContent | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -103,6 +105,30 @@ export default function NotesPage() {
       setGenerationError(getAIErrorMessage(error));
     } finally {
       setIsSynthesizing(null);
+    }
+  };
+
+  const handleExportPdf = async () => {
+    const notes = generatedContent?.notes;
+    if (!notes || isExportingPdf) return;
+
+    setIsExportingPdf(true);
+    try {
+      const { exportNotesPdf } = await import('@/lib/export-notes-pdf');
+      exportNotesPdf({
+        topic: generatedContent.sourceTopic || 'Generated Notes',
+        markdown: notes,
+      });
+      toast({ title: 'PDF Exported', description: 'Your study notes have been downloaded.' });
+    } catch (error) {
+      console.error('Notes PDF export failed.', error);
+      toast({
+        variant: 'destructive',
+        title: 'Export Failed',
+        description: 'Could not create the PDF. Please try again.',
+      });
+    } finally {
+      setIsExportingPdf(false);
     }
   };
   
@@ -228,7 +254,6 @@ export default function NotesPage() {
     return (
       <NotesDisplay
         notes={generatedContent.notes}
-        topic={generatedContent.sourceTopic || 'Generated Notes'}
         onPlayAudio={handlePlayAudio}
         isSynthesizing={isSynthesizing}
       />
@@ -350,25 +375,40 @@ export default function NotesPage() {
         {/* Right panel */}
         <Card className="lg:sticky top-24 flex-1 flex flex-col">
           <CardHeader>
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <CardTitle>Generated Notes</CardTitle>
                     <CardDescription>{generatedContent?.sourceTopic ? `Notes on ${generatedContent.sourceTopic}` : 'Your AI-generated notes.'}</CardDescription>
                 </div>
                 {generatedContent?.notes && (
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handlePlayAudio(generatedContent.notes!, 'full-notes')}
-                        disabled={!!isSynthesizing}
+                      variant="outline"
+                      size="sm"
+                      onClick={handleExportPdf}
+                      disabled={isExportingPdf}
                     >
-                        {isSynthesizing === 'full-notes' ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                            <Volume2 className="mr-2 h-4 w-4" />
-                        )}
-                        Listen to All
+                      {isExportingPdf ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Download className="h-4 w-4" />
+                      )}
+                      Export PDF
                     </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handlePlayAudio(generatedContent.notes!, 'full-notes')}
+                      disabled={!!isSynthesizing}
+                    >
+                      {isSynthesizing === 'full-notes' ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Volume2 className="mr-2 h-4 w-4" />
+                      )}
+                      Listen to All
+                    </Button>
+                  </div>
                 )}
             </div>
           </CardHeader>
