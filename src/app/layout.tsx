@@ -55,11 +55,11 @@ export const metadata: Metadata = {
   keywords: ['AI study assistant', 'generate notes', 'flashcards maker', 'quiz generator', 'study tools', 'education AI', 'concept maps'],
   authors: [{ name: 'Scripto Team' }],
   creator: 'Scripto',
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'https://scripto.vercel.app'),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'https://scripto-gules.vercel.app'),
   openGraph: {
     type: 'website',
     locale: 'en_US',
-    url: '/',
+    url: 'https://scripto-gules.vercel.app',
     title: 'Scripto - Your Personal AI Study Assistant',
     description: 'Transform your study routine with AI. Generate notes, flashcards, quizzes, and concept maps from any text or topic instantly.',
     siteName: 'Scripto',
