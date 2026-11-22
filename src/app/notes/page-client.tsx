@@ -59,6 +59,7 @@ interface GeneratedContent {
   flashcards?: any[];
   imageHint?: string;
   sourceTopic?: string;
+  sourceFileName?: string;
 }
 
 function getNoteSourceType(inputMode: InputMode): NoteSourceType {
@@ -238,9 +239,18 @@ export default function NotesPage() {
 
     setIsExportingPdf(true);
     try {
-      const { exportNotesPdf } = await import('@/lib/export-notes-pdf');
+      const { exportNotesPdf, resolveNotesTitle } = await import('@/lib/export-notes-pdf');
+      const resolvedTitle = resolveNotesTitle({
+        explicitTopic: inputMode === 'from-topic'
+          ? generatedContent.sourceTopic || topic
+          : undefined,
+        uploadedFileName: inputMode === 'from-file'
+          ? generatedContent.sourceFileName
+          : undefined,
+        markdown: notes,
+      });
       exportNotesPdf({
-        topic: generatedContent.sourceTopic || 'Generated Notes',
+        topic: resolvedTitle,
         markdown: notes,
       });
       toast({ title: 'PDF Exported', description: 'Your study notes have been downloaded.' });
@@ -259,10 +269,20 @@ export default function NotesPage() {
   const handleSaveNote = async () => {
     const notes = generatedContent?.notes;
     if (!notes || isSavingNote || !isLoaded) return;
+    const { resolveNotesTitle } = await import('@/lib/export-notes-pdf');
+    const resolvedTitle = resolveNotesTitle({
+      explicitTopic: inputMode === 'from-topic'
+        ? generatedContent.sourceTopic || topic
+        : undefined,
+      uploadedFileName: inputMode === 'from-file'
+        ? generatedContent.sourceFileName
+        : undefined,
+      markdown: notes,
+    });
     if (!isSignedIn) {
       try {
         const savedNote = saveLocalNote({
-          title: generatedContent.sourceTopic?.trim() || 'Study Notes',
+          title: resolvedTitle,
           content: notes,
           sourceType: getNoteSourceType(inputMode),
         });
@@ -288,7 +308,7 @@ export default function NotesPage() {
     setSavedNotesError(null);
     try {
       const savedNote = await saveNoteAction({
-        title: generatedContent.sourceTopic?.trim() || 'Study Notes',
+        title: resolvedTitle,
         content: notes,
         sourceType: getNoteSourceType(inputMode),
       });
@@ -304,7 +324,7 @@ export default function NotesPage() {
       console.error('Could not save study note.', error);
       try {
         const savedNote = saveLocalNote({
-          title: generatedContent.sourceTopic?.trim() || 'Study Notes',
+          title: resolvedTitle,
           content: notes,
           sourceType: getNoteSourceType(inputMode),
         });
@@ -330,7 +350,14 @@ export default function NotesPage() {
 
   const handleOpenSavedNote = (note: SavedNote) => {
     setInputMode(getInputMode(note.sourceType));
-    setGeneratedContent({ notes: note.content, sourceTopic: note.title });
+    setGeneratedContent({
+      notes: note.content,
+      ...(note.sourceType === 'topic'
+        ? { sourceTopic: note.title }
+        : note.sourceType === 'file'
+          ? { sourceFileName: note.title }
+          : {}),
+    });
     setGenerationError(null);
     setImageUrl(null);
     setAudioSrc(null);
@@ -416,6 +443,7 @@ export default function NotesPage() {
         };
       } else {
         let notesInput: GenerateNotesInput = {};
+        let sourceFileName: string | undefined;
         if (inputMode === 'from-text') {
             if (!text.trim()) {
                 setGenerationError('Enter text to generate notes.');
@@ -445,6 +473,7 @@ export default function NotesPage() {
                      return;
                  }
                  notesInput.text = extractedText;
+                 sourceFileName = file.name;
              } catch (error) {
                  setGenerationError('Could not read the file. Use a supported document no larger than 10 MB.');
                  setIsLoading(false);
@@ -455,6 +484,7 @@ export default function NotesPage() {
         const notesResult = unwrapAIActionResult(await generateNotes(notesInput));
         result = {
           notes: notesResult.notes,
+          sourceFileName,
         };
       }
 

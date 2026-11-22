@@ -10,6 +10,12 @@ interface TextRun {
   bold: boolean;
 }
 
+interface ResolveNotesTitleOptions {
+  explicitTopic?: string;
+  uploadedFileName?: string;
+  markdown: string;
+}
+
 type NotesBlock =
   | { type: 'heading'; level: number; text: string }
   | { type: 'paragraph'; text: string }
@@ -19,6 +25,37 @@ const PAGE_WIDTH = 210;
 const PAGE_HEIGHT = 297;
 const MARGIN = 18;
 const FOOTER_TOP = 278;
+
+export function resolveNotesTitle({
+  explicitTopic,
+  uploadedFileName,
+  markdown,
+}: ResolveNotesTitleOptions): string {
+  const topic = explicitTopic?.trim();
+  if (topic) return topic.slice(0, 200);
+
+  const fileName = getUploadedFileTitle(uploadedFileName);
+  if (fileName) return fileName.slice(0, 200);
+
+  const heading = markdown.match(/^\s{0,3}#{1,2}\s+(.+?)\s*#*\s*$/m);
+  const headingTitle = heading?.[1]
+    ?.replace(/[*_~`]/g, '')
+    .replace(/\[(.+?)\]\([^)]+\)/g, '$1')
+    .trim();
+  if (headingTitle) return headingTitle.slice(0, 200);
+
+  return 'Study Notes';
+}
+
+function getUploadedFileTitle(fileName?: string): string {
+  if (!fileName) return '';
+
+  const baseName = fileName
+    .replace(/^.*[\\/]/, '')
+    .replace(/\.[^.]+$/, '')
+    .trim();
+  return baseName;
+}
 
 export function exportNotesPdf({ topic, markdown }: ExportNotesPdfOptions): void {
   const cleanTopic = topic.trim().slice(0, 200) || 'Study Notes';
