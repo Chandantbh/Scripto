@@ -4,73 +4,16 @@ import React, { type FC, useEffect, useRef, useState } from 'react';
 import * as ScrollArea from '@radix-ui/react-scroll-area'
 import { marked, type Tokens } from 'marked';
 import Slugger from 'github-slugger';
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
-import { Download, Loader2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { useToast } from '@/hooks/use-toast';
 
 interface NotesDisplayProps {
   notes: string;
-  topic?: string;
   onPlayAudio: (text: string, id: string) => void;
   isSynthesizing: string | null;
 }
 
-const NotesDisplay: FC<NotesDisplayProps> = ({ notes, topic, onPlayAudio, isSynthesizing }) => {
+const NotesDisplay: FC<NotesDisplayProps> = ({ notes, onPlayAudio, isSynthesizing }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [html, setHtml] = useState('');
-  const [isExporting, setIsExporting] = useState(false);
-  const { toast } = useToast();
-
-  const handleExportPdf = async () => {
-    if (!containerRef.current) return;
-    setIsExporting(true);
-
-    try {
-      const element = containerRef.current;
-      const canvas = await html2canvas(element, {
-        scale: 2, // Improve quality
-        useCORS: true, // Handle images if any
-        logging: false,
-      });
-
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4',
-      });
-
-      const imgWidth = 210; // A4 width in mm
-      const pageHeight = 297; // A4 height in mm
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let heightLeft = imgHeight;
-      let position = 0;
-
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
-
-      const fileName = `scripto-notes-${
-         topic?.replace(/\s+/g, '_') || 'generated'
-      }.pdf`;
-
-      pdf.save(fileName);
-      toast({ title: "PDF Exported!", description: "Your notes have been downloaded." });
-    } catch (error) {
-      console.error("PDF Export failed:", error);
-      toast({ variant: 'destructive', title: "Export Failed", description: "Could not generate PDF." });
-    } finally {
-      setIsExporting(false);
-    }
-  };
 
   // Render markdown with custom heading renderer
   useEffect(() => {
@@ -160,18 +103,6 @@ const NotesDisplay: FC<NotesDisplayProps> = ({ notes, topic, onPlayAudio, isSynt
 
   return (
     <div className="flex flex-col h-full max-h-[calc(100vh-250px)] relative">
-      <div className="absolute top-2 right-6 z-10">
-        <Button 
-          variant="outline" 
-          size="sm" 
-          className="gap-2 bg-background/80 backdrop-blur-sm shadow-sm hover:bg-background"
-          onClick={handleExportPdf}
-          disabled={isExporting}
-        >
-          {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-          Export PDF
-        </Button>
-      </div>
       <ScrollArea.Root className="h-full">
         <ScrollArea.Viewport className="h-full w-full pr-4">
           <div
