@@ -1,101 +1,113 @@
 # Scripto
 
-**Scripto** is your personal AI-powered study assistant. Transform any text, topic, or video into comprehensive study materials instantly.
+**Scripto is a personal AI study workspace that turns text, topics, documents, and YouTube links into focused notes, quizzes, flashcards, exams, and visual knowledge maps.**
 
-**Live demo:** [Open Scripto](https://scripto-gules.vercel.app)
+[![Live Demo](https://img.shields.io/badge/Live_Demo-Visit_Scripto-18181b?style=for-the-badge)](https://scripto-gules.vercel.app)
 
-## Screenshots
+## Showcase
 
-![Scripto Dark Mode](./public/screenshots/dashboard-dark.png)
-![Scripto Light Mode](./public/screenshots/dashboard-light.png)
+![Study Notes](./public/screenshots/notes.png)
 
-## 🚀 Features
+![Concept Map](./public/screenshots/concept-map.png)
 
-Scripto offers a suite of tools designed to help you learn faster and retain more information:
+![Progress and Achievements](./public/screenshots/progress.png)
 
-- **📝 Smart Notes**: Generate structured notes from pasted text, a topic, PDFs, DOCX/text files, or YouTube videos.
-- **🗂️ AI Flashcards**: Create flashcards from study material, topics, uploaded files, or YouTube videos.
-- **🧠 Quiz Generator**: Generate multiple-choice quizzes from pasted text, a topic, or a YouTube video.
-- **👶 ELI5 (Explain Like I'm 5)**: Simplify text, uploaded files, images, or YouTube video content, with a selectable explanation difficulty.
-- **🗺️ Concept Maps**: Visualize relationships between topics with interactive concept maps.
-- **🎓 Exam Prep**: Generate and take practice exams with configurable subjects, marks, and question types.
-- **📊 Progress Tracking**: Track study streaks, XP, quiz and exam scores, and activity history.
-- **🏆 Achievements**: Unlock achievement badges through quiz, exam, and consistency milestones.
-- **📚 Quiz History**: Review past quiz results, scores, and study streak statistics.
+## Features
 
-## 🛠️ Tech Stack
+### Study tools
 
-- **Framework**: [Next.js 15](https://nextjs.org/) (App Router)
-- **Language**: [TypeScript](https://www.typescriptlang.org/)
-- **Styling**: [Tailwind CSS](https://tailwindcss.com/)
-- **UI Components**: [Shadcn UI](https://ui.shadcn.com/)
-- **Authentication**: [Clerk](https://clerk.com/)
-- **AI Engine**: [Genkit](https://firebase.google.com/docs/genkit) (Google AI SDK)
-- **State Management**: React Hooks
-- **Icons**: [Lucide React](https://lucide.dev/)
+- **Study Notes** (`src/ai/flows/generate-notes.ts`) - Generate structured Markdown notes from pasted text, topics, PDF/DOCX/TXT documents, or YouTube links. Export them as PDFs with `jspdf` and save them to your account.
+- **Interactive Quiz** (`src/ai/flows/generate-quiz.ts`) - Generate multiple-choice quizzes with instant scoring and XP tracking.
+- **Flashcards** (`src/ai/flows/generate-flashcards.ts`, `src/ai/flows/generate-from-topic.ts`) - Flip through concise AI-generated flashcards from topics, uploaded files, or YouTube videos.
+- **ELI5 Explainer** (`src/ai/flows/eli5.ts`) - Generate multi-difficulty explanations from text, documents, images, or YouTube content.
+- **Concept Maps** (`src/ai/flows/generate-concept-map.ts`) - Explore interactive React Flow knowledge graphs with custom monochrome node cards and labeled directed edges.
+- **Exam Prep and Grading** (`src/ai/flows/generate-exam.ts`, `src/ai/flows/evaluate-exam.ts`) - Create customizable practice exams and receive AI-generated grading and feedback.
 
-## 📦 Getting Started
+### Progress and account storage
 
-Follow these steps to set up the project locally:
+- **Progress, Streaks, and Achievements** (`src/app/actions/user-data.ts`, `src/lib/gamification.ts`) track XP, streaks, longest streaks, quiz and exam activity, and achievement unlocks.
+- Authenticated user data is persisted in **Supabase PostgreSQL** in `user_stats`, `activity_history`, and `saved_notes`, with row-level security enabled.
+- Clerk authenticates users and scopes server-side data access to the Clerk `user_id`.
+- `localStorage` provides a fallback for signed-out users or when account synchronization is unavailable.
+
+## Architecture
+
+- Next.js App Router pages and server actions deliver the study tools and account workflows.
+- Genkit prompts and Zod schemas run AI generation and validate AI inputs and outputs.
+- Server Actions use a server-only Supabase service-role client for authenticated account operations.
+- YouTube study sources support resilient transcript retrieval and canonical URL normalization.
+- Clerk sessions protect account features, while API rate limiting limits AI requests per authenticated user or IP.
+
+## Tech Stack
+
+- Next.js 15 with the App Router
+- TypeScript
+- Tailwind CSS
+- Clerk Authentication
+- Supabase PostgreSQL with RLS enabled
+- Google Gemini through Genkit
+- React Flow
+- jsPDF
+- Vercel deployment
+
+Legacy Firebase/IDX configuration has been removed.
+
+## Quick Start
 
 ### Prerequisites
 
-- Node.js 18+
-- npm or pnpm
+- Node.js 18 or newer
+- npm
+- A Clerk application
+- A Supabase project
+- A Google Gemini API key
 
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/Chandantbh/Scripto.git
-   cd scripto
-   ```
-
-2. **Install dependencies**
-   ```bash
-   npm ci --legacy-peer-deps
-   # or
-   pnpm install
-   ```
-
-3. **Environment Setup**
-   Create a `.env.local` file in the root directory and add the following variables:
-   
-   ```env
-   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
-   CLERK_SECRET_KEY=your_clerk_secret_key
-   GOOGLE_GENAI_API_KEY=your_google_ai_key
-   unsplash_access_key=your_unsplash_key
-   ```
-
-4. **Run the Development Server**
-   ```bash
-   npm run dev
-   ```
-
-   Open [http://localhost:9002](http://localhost:9002) with your browser to see the result.
-
-   **Windows:** Keep the project outside OneDrive-synced folders. Next.js writes generated files to `.next`, and OneDrive filesystem reparse points can cause `EINVAL` errors. If moving an existing copy, remove its generated `.next` directory before starting the server again.
-
-## 🤖 AI Flows
-
-The application uses Genkit for AI operations. The flows are defined in `src/ai/flows/`:
-
-- `generate-notes.ts`: Structured note generation
-- `generate-quiz.ts`: MCQ generation
-- `generate-flashcards.ts`: Q&A flashcard pairs
-- `eli5.ts`: Simplified explanations
-
-To run the Genkit developer UI:
+### Clone and install
 
 ```bash
-npm run genkit:dev
+git clone https://github.com/Chandantbh/Scripto.git
+cd Scripto
+npm ci
 ```
 
-## 📱 Mobile Support
+### Environment variables
 
-Scripto is fully responsive and optimized for mobile devices, featuring a touch-friendly navigation drawer and adaptive layouts.
+Create `.env.local` in the repository root:
 
-## 📄 License
+```env
+GEMINI_API_KEY=your_google_gemini_api_key
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
+CLERK_SECRET_KEY=your_clerk_secret_key
+SUPABASE_URL=your_supabase_project_url
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+```
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+### Run locally
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:9002](http://localhost:9002).
+
+### Validation
+
+```bash
+npm run typecheck
+npm run build
+```
+
+## AI Flow Reference
+
+- `src/ai/flows/generate-notes.ts`
+- `src/ai/flows/generate-quiz.ts`
+- `src/ai/flows/generate-flashcards.ts`
+- `src/ai/flows/generate-from-topic.ts`
+- `src/ai/flows/eli5.ts`
+- `src/ai/flows/generate-concept-map.ts`
+- `src/ai/flows/generate-exam.ts`
+- `src/ai/flows/evaluate-exam.ts`
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](./LICENSE).
