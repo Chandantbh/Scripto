@@ -3,14 +3,15 @@
 **Scripto is a personal AI study workspace that turns text, topics, documents, and YouTube links into focused notes, quizzes, flashcards, exams, and visual knowledge maps.**
 
 [![Live Demo](https://img.shields.io/badge/Live_Demo-Visit_Scripto-18181b?style=for-the-badge)](https://scripto-gules.vercel.app)
+[![CI](https://github.com/Chandantbh/Scripto/actions/workflows/ci.yml/badge.svg)](https://github.com/Chandantbh/Scripto/actions/workflows/ci.yml)
 
 ## Showcase
 
+<!-- Screenshot showcase temporarily disabled until the PNG files are added.
 ![Study Notes](./public/screenshots/notes.png)
-
 ![Concept Map](./public/screenshots/concept-map.png)
-
 ![Progress and Achievements](./public/screenshots/progress.png)
+-->
 
 ## Features
 
