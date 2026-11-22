@@ -13,7 +13,7 @@ import {generateWithModelFallback} from '@/ai/model-retry';
 import {executeAIAction} from '@/ai/action-guard';
 import {AIInputError} from '@/ai/errors';
 import {MAX_AI_TEXT_CHARACTERS} from '@/ai/generation-limits';
-import { getYouTubeTranscript } from '@/services/youtube';
+import { getYouTubeSource } from '@/services/youtube';
 import {z} from 'genkit';
 import {type AIActionResult} from '@/types/ai-action';
 
@@ -42,9 +42,12 @@ export async function generateQuiz(input: GenerateQuizInput): Promise<AIActionRe
 
 const prompt = ai.definePrompt({
   name: 'generateQuizPrompt',
-  input: { schema: z.object({ content: z.string() }) },
+  input: { schema: z.object({ content: z.string().optional(), youtubeUrl: z.string().optional() }) },
   output: {schema: GenerateQuizOutputSchema},
-  prompt: `You are a quiz generator. Generate a quiz based on the following content: {{{content}}}. The quiz should include multiple choice questions with 4 options and a correct answer. For each question, also provide a single, relevant emoji.`,
+  prompt: `You are a quiz generator. Generate a quiz based on the following content.
+  {{#if content}}Content: {{{content}}}{{/if}}
+  {{#if youtubeUrl}}YouTube video: {{media url=youtubeUrl}}{{/if}}
+  The quiz should include multiple choice questions with 4 options and a correct answer. For each question, also provide a single, relevant emoji.`,
 });
 
 const generateQuizFlow = ai.defineFlow(
@@ -55,17 +58,20 @@ const generateQuizFlow = ai.defineFlow(
   },
   async input => {
     let content = input.text || '';
+    let youtubeUrl: string | undefined;
 
     if (input.youtubeUrl) {
-      content = await getYouTubeTranscript(input.youtubeUrl);
+      const source = await getYouTubeSource(input.youtubeUrl);
+      if (source.kind === 'transcript') content = source.text;
+      else youtubeUrl = source.canonicalUrl;
     }
 
-    if (!content.trim()) {
+    if (!content.trim() && !youtubeUrl) {
       throw new AIInputError('No usable content was found. Please check the source and try again.');
     }
 
     const {output} = await generateWithModelFallback(model =>
-      prompt({ content }, model ? {model} : undefined)
+      prompt({ content: content || undefined, youtubeUrl }, model ? {model} : undefined)
     );
     if (!output) {
       throw new Error('Failed to generate the quiz.');

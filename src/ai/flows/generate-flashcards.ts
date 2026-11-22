@@ -17,7 +17,7 @@ import {
   MAX_FLASHCARD_INPUT_CHARACTERS,
   MAX_FLASHCARDS,
 } from '@/ai/generation-limits';
-import { getYouTubeTranscript } from '@/services/youtube';
+import { getYouTubeSource } from '@/services/youtube';
 import {z} from 'genkit';
 import {type AIActionResult} from '@/types/ai-action';
 
@@ -48,7 +48,7 @@ export async function generateFlashcards(input: GenerateFlashcardsInput): Promis
 
 const prompt = ai.definePrompt({
   name: 'generateFlashcardsPrompt',
-  input: {schema: z.object({ content: z.string() }) },
+  input: {schema: z.object({ content: z.string().optional(), youtubeUrl: z.string().optional() }) },
   output: {schema: GenerateFlashcardsOutputSchema},
   prompt: `You are an expert at creating flashcards for students.
 
@@ -59,7 +59,8 @@ const prompt = ai.definePrompt({
   4. A "color" as a hex code that is visually appealing for a background. Ensure good contrast for dark text.
   Generate between 5 and ${MAX_FLASHCARDS} flashcards, using fewer only if the content is very short. Keep each answer concise.
 
-  Content: {{{content}}}
+  {{#if content}}Content: {{{content}}}{{/if}}
+  {{#if youtubeUrl}}YouTube video: {{media url=youtubeUrl}}{{/if}}
 
   Return only the structured flashcards object requested by the output schema.
   `,
@@ -73,18 +74,21 @@ const generateFlashcardsFlow = ai.defineFlow(
   },
   async input => {
     let content = input.text || '';
+    let youtubeUrl: string | undefined;
     
     if (input.youtubeUrl) {
-      content = await getYouTubeTranscript(input.youtubeUrl);
+      const source = await getYouTubeSource(input.youtubeUrl);
+      if (source.kind === 'transcript') content = source.text;
+      else youtubeUrl = source.canonicalUrl;
     }
 
-    if (!content.trim()) {
+    if (!content.trim() && !youtubeUrl) {
       throw new AIInputError('No usable content was found. Please check the source and try again.');
     }
 
     const {output} = await generateWithModelFallback(model =>
       prompt(
-        { content },
+        { content: content || undefined, youtubeUrl },
         {
           ...(model ? {model} : {}),
           config: {maxOutputTokens: 2048},

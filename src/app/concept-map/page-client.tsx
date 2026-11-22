@@ -11,6 +11,9 @@ import ReactFlow, {
   Edge,
   Node,
   MarkerType,
+  Handle,
+  Position,
+  type NodeProps,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { Button } from '@/components/ui/button';
@@ -31,11 +34,26 @@ const initialNodes: Node[] = [
     id: '1',
     data: { label: 'Enter a topic to generate a concept map' },
     position: { x: 250, y: 250 },
-    type: 'input',
+    type: 'monochromeConcept',
   },
 ];
 
 const initialEdges: Edge[] = [];
+
+function MonochromeConceptNode({ data }: NodeProps<{ label: string; description?: string }>) {
+  return (
+    <div className="w-[220px] rounded-md border-2 border-zinc-900 bg-white px-3 py-2 text-zinc-950 shadow-sm">
+      <Handle type="target" position={Position.Left} className="!h-2.5 !w-2.5 !border-2 !border-zinc-900 !bg-white" />
+      <p className="text-sm font-bold leading-tight">{data.label}</p>
+      {data.description ? (
+        <p className="mt-1 text-xs leading-snug text-zinc-500">{data.description}</p>
+      ) : null}
+      <Handle type="source" position={Position.Right} className="!h-2.5 !w-2.5 !border-2 !border-zinc-900 !bg-white" />
+    </div>
+  );
+}
+
+const nodeTypes = { monochromeConcept: MonochromeConceptNode };
 
 export default function ConceptMapPage() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
@@ -53,20 +71,18 @@ export default function ConceptMapPage() {
   );
 
   const mapDataToFlowElements = (data: ConceptMapOutput) => {
-    // Basic layout algorithm (simplified for this demo)
-    // A real app would use dagre or elkjs for auto-layout
     const newNodes: Node[] = (data.concepts || []).map((concept, index) => {
-        // Distribute nodes in a circle/spiral or grid
-        const angle = (index / (data.concepts.length || 1)) * 2 * Math.PI;
-        const radius = 200 + (index * 20); 
-        const x = 400 + Math.cos(angle) * radius;
-        const y = 300 + Math.sin(angle) * radius;
+        const columns = Math.ceil(Math.sqrt(data.concepts.length || 1));
+        const column = index % columns;
+        const row = Math.floor(index / columns);
+        const x = 80 + column * 280;
+        const y = 80 + row * 180;
 
         return {
             id: concept.id,
             data: { label: concept.label, description: concept.description },
             position: { x, y },
-            type: index === 0 ? 'input' : 'default', // Assume first is root for styling
+            type: 'monochromeConcept',
         };
     });
 
@@ -78,8 +94,14 @@ export default function ConceptMapPage() {
         type: 'smoothstep',
         markerEnd: {
             type: MarkerType.ArrowClosed,
+            color: '#18181b',
         },
-        animated: true,
+        animated: false,
+        style: { stroke: '#18181b', strokeWidth: 1.5 },
+        labelStyle: { fill: '#18181b', fontWeight: 600, fontSize: 11 },
+        labelBgStyle: { fill: '#ffffff', fillOpacity: 0.95 },
+        labelBgPadding: [4, 3],
+        labelBgBorderRadius: 4,
     }));
 
     setNodes(newNodes);
@@ -214,6 +236,14 @@ export default function ConceptMapPage() {
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onConnect={onConnect}
+                nodeTypes={nodeTypes}
+                defaultEdgeOptions={{
+                    type: 'smoothstep',
+                    animated: false,
+                    style: { stroke: '#18181b', strokeWidth: 1.5 },
+                    labelStyle: { fill: '#18181b', fontWeight: 600, fontSize: 11 },
+                    labelBgStyle: { fill: '#ffffff', fillOpacity: 0.95 },
+                }}
                 fitView
             >
                 <Controls />

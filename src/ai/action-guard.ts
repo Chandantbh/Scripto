@@ -4,6 +4,7 @@ import { type ZodError, type ZodType, type ZodTypeDef } from 'zod';
 import { AIInputError } from '@/ai/errors';
 import { MAX_AI_TEXT_CHARACTERS, MAX_TOPIC_CHARACTERS } from '@/ai/generation-limits';
 import { checkAIRateLimit } from '@/lib/rate-limit';
+import { normalizeYouTubeUrl } from '@/services/youtube';
 import { type AIActionResult } from '@/types/ai-action';
 
 const MAX_OTHER_FIELD_CHARACTERS = 5_000;
@@ -193,23 +194,6 @@ function isValidInlineMedia(value: string, field: string): boolean {
 }
 
 export function isValidYouTubeUrl(value: string): boolean {
-  if (value.length > 2_048) return false;
-
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'https:' || url.username || url.password || url.port) return false;
-
-    const hostname = url.hostname.toLowerCase();
-    if (hostname === 'youtu.be') {
-      return /^\/[A-Za-z0-9_-]{11}\/?$/.test(url.pathname);
-    }
-    if (!['youtube.com', 'www.youtube.com', 'm.youtube.com'].includes(hostname)) {
-      return false;
-    }
-
-    return /^\/watch\/?$/.test(url.pathname) &&
-      /^[A-Za-z0-9_-]{11}$/.test(url.searchParams.get('v') ?? '');
-  } catch {
-    return false;
-  }
+  if (value.trim().length > 2_048) return false;
+  return normalizeYouTubeUrl(value) !== null;
 }

@@ -10,7 +10,7 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
-import { getYouTubeTranscript } from '@/services/youtube';
+import { getYouTubeSource } from '@/services/youtube';
 import {executeAIAction} from '@/ai/action-guard';
 import {AIInputError} from '@/ai/errors';
 import {MAX_AI_TEXT_CHARACTERS} from '@/ai/generation-limits';
@@ -67,7 +67,7 @@ const analysisPrompt = ai.definePrompt({
     {{#if text}}Text: {{{text}}}{{/if}}
     {{#if imageDataUri}}{{media url=imageDataUri}}{{/if}}
     {{#if audioDataUri}}{{media url=audioDataUri}}{{/if}}
-    {{#if youtubeUrl}}Video Transcript: {{{youtubeUrl}}}{{/if}}
+    {{#if youtubeUrl}}YouTube video: {{media url=youtubeUrl}}{{/if}}
 
     Based on the content:
     1. Identify the key concepts. For each concept, provide a unique ID, a name, and a short description.
@@ -92,12 +92,16 @@ const analyzeContentFlow = ai.defineFlow(
     let processedInput = { ...input };
 
     if (input.youtubeUrl) {
-      const transcript = await getYouTubeTranscript(input.youtubeUrl);
-      if (!transcript.trim()) {
-        throw new AIInputError('No usable transcript was found for this video.');
+      const source = await getYouTubeSource(input.youtubeUrl);
+      if (source.kind === 'transcript') {
+        if (!source.text.trim()) {
+          throw new AIInputError('No usable transcript was found for this video.');
+        }
+        processedInput.text = source.text;
+        processedInput.youtubeUrl = undefined;
+      } else {
+        processedInput.youtubeUrl = source.canonicalUrl;
       }
-      processedInput.text = transcript;
-      processedInput.youtubeUrl = undefined;
     }
     
     const { output } = await analysisPrompt(processedInput);

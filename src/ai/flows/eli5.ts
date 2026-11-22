@@ -12,6 +12,8 @@ import {ai} from '@/ai/genkit';
 import {generateWithModelFallback} from '@/ai/model-retry';
 import {executeAIAction} from '@/ai/action-guard';
 import {MAX_AI_TEXT_CHARACTERS} from '@/ai/generation-limits';
+import {AIInputError} from '@/ai/errors';
+import {getYouTubeSource} from '@/services/youtube';
 import {z} from 'genkit';
 import {type AIActionResult} from '@/types/ai-action';
 
@@ -54,7 +56,7 @@ const generateContentPrompt = ai.definePrompt({
     Content to Explain:
     {{#if text}}Text: {{{text}}}{{/if}}
     {{#if imageDataUri}}{{media url=imageDataUri}}{{/if}}
-    {{#if youtubeUrl}}YouTube URL (imagine you have summarized it): {{{youtubeUrl}}}{{/if}}
+    {{#if youtubeUrl}}YouTube video: {{media url=youtubeUrl}}{{/if}}
 
     Difficulty: {{{difficulty}}}
     `,
@@ -68,8 +70,30 @@ const eli5Flow = ai.defineFlow(
     outputSchema: ExplainLikeImFiveOutputSchema,
   },
   async (input) => {
+    let processedInput = { ...input };
+    if (input.youtubeUrl) {
+      const source = await getYouTubeSource(input.youtubeUrl);
+      if (source.kind === 'transcript') {
+        processedInput = {
+          ...processedInput,
+          text: source.text,
+          youtubeUrl: undefined,
+        };
+      } else {
+        processedInput.youtubeUrl = source.canonicalUrl;
+      }
+    }
+
+    if (
+      !processedInput.text?.trim() &&
+      !processedInput.imageDataUri &&
+      !processedInput.youtubeUrl
+    ) {
+      throw new AIInputError('No usable content was found. Please check the source and try again.');
+    }
+
     const { output } = await generateWithModelFallback(model =>
-      generateContentPrompt(input, model ? {model} : undefined)
+      generateContentPrompt(processedInput, model ? {model} : undefined)
     );
     
     if (!output) {

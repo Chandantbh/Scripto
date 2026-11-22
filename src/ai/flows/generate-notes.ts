@@ -14,7 +14,7 @@ import {generateWithModelFallback} from '@/ai/model-retry';
 import {executeAIAction} from '@/ai/action-guard';
 import {AIInputError} from '@/ai/errors';
 import {MAX_AI_TEXT_CHARACTERS} from '@/ai/generation-limits';
-import { getYouTubeTranscript } from '@/services/youtube';
+import { getYouTubeSource } from '@/services/youtube';
 import {z} from 'genkit';
 import {type AIActionResult} from '@/types/ai-action';
 
@@ -36,12 +36,12 @@ export async function generateNotes(input: GenerateNotesInput): Promise<AIAction
 
 const generateNotesPrompt = ai.definePrompt({
   name: 'generateNotesPrompt',
-  input: { schema: z.object({ content: z.string() }) },
+  input: { schema: z.object({ content: z.string().optional(), youtubeUrl: z.string().optional() }) },
   output: {schema: GenerateNotesOutputSchema},
   prompt: `You are an expert note-taker. Generate detailed, well-structured, and easy-to-understand notes from the following content. Use markdown for formatting, including headings, lists, and bold text to highlight key points.
 
-  Content to analyze:
-  {{{content}}}
+  {{#if content}}Content to analyze: {{{content}}}{{/if}}
+  {{#if youtubeUrl}}YouTube video: {{media url=youtubeUrl}}{{/if}}
   `,
 });
 
@@ -53,17 +53,20 @@ const generateNotesFlow = ai.defineFlow(
   },
   async input => {
     let content = input.text || '';
+    let youtubeUrl: string | undefined;
     
     if (input.youtubeUrl) {
-      content = await getYouTubeTranscript(input.youtubeUrl);
+      const source = await getYouTubeSource(input.youtubeUrl);
+      if (source.kind === 'transcript') content = source.text;
+      else youtubeUrl = source.canonicalUrl;
     }
 
-    if (!content.trim()) {
+    if (!content.trim() && !youtubeUrl) {
       throw new AIInputError('No usable content was found. Please check the source and try again.');
     }
     
     const {output} = await generateWithModelFallback(model =>
-      generateNotesPrompt({ content }, model ? {model} : undefined)
+      generateNotesPrompt({ content: content || undefined, youtubeUrl }, model ? {model} : undefined)
     );
 
     if (!output) {
