@@ -56,6 +56,9 @@ import { readStudyPreferences } from '@/components/app/settings-dialog';
 import GuestAuthModal from '@/components/app/guest-auth-modal';
 import { consumeGuestGeneration, isGuestMode } from '@/lib/guest-mode';
 import StudyStudio from '@/components/app/study-studio';
+import type { StudyAction } from '@/components/app/study-studio';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { requestGuestAuth } from '@/lib/guest-mode';
 
 type InputMode = 'from-text' | 'from-topic' | 'from-youtube' | 'from-file';
 
@@ -172,6 +175,9 @@ export default function NotesPage() {
   const [guestModalOpen, setGuestModalOpen] = useState(false);
   const [guestModalAction, setGuestModalAction] = useState<'save-note' | 'generation'>('save-note');
   const [selectedText, setSelectedText] = useState('');
+  const [selectedAction, setSelectedAction] = useState<StudyAction>();
+  const [popoverPosition, setPopoverPosition] = useState({ x: 0, y: 0 });
+  const [isListening, setIsListening] = useState(false);
 
   useEffect(() => {
     const mode = searchParams.get('mode');
@@ -304,6 +310,22 @@ export default function NotesPage() {
     URL.revokeObjectURL(url);
   };
 
+  const handleListen = () => {
+    if (!generatedContent?.notes) return;
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (isListening) {
+      window.speechSynthesis.cancel();
+      setIsListening(false);
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(generatedContent.notes.replace(/[#*_`]/g, ''));
+    utterance.onend = () => setIsListening(false);
+    utterance.onerror = () => setIsListening(false);
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+    setIsListening(true);
+  };
+
   const handleSaveNote = async () => {
     const notes = generatedContent?.notes;
     if (!notes || isSavingNote || !isLoaded) return;
@@ -318,8 +340,7 @@ export default function NotesPage() {
       markdown: notes,
     });
     if (!isSignedIn) {
-      setGuestModalAction('save-note');
-      setGuestModalOpen(true);
+      requestGuestAuth('save-note');
       return;
     }
 
@@ -767,7 +788,7 @@ export default function NotesPage() {
                     </Button>
                     <Button variant="outline" size="sm" onClick={handleExportMarkdown}>
                       <Download className="h-4 w-4" />
-                      Markdown
+                      Export Markdown .md
                     </Button>
                     <Button
                       variant="outline"
@@ -785,15 +806,11 @@ export default function NotesPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handlePlayAudio(generatedContent.notes!, 'full-notes')}
-                      disabled={!!isSynthesizing}
+                      onClick={handleListen}
+                      aria-label={isListening ? 'Stop listening' : 'Listen'}
                     >
-                      {isSynthesizing === 'full-notes' ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Volume2 className="mr-2 h-4 w-4" />
-                      )}
-                      Listen to All
+                      <Volume2 className="mr-2 h-4 w-4" />
+                      {isListening ? 'Stop Listening' : 'Listen'}
                     </Button>
                   </div>
                 )}
@@ -804,6 +821,11 @@ export default function NotesPage() {
             onMouseUp={() => {
               const selection = window.getSelection()?.toString().trim() ?? '';
               setSelectedText(selection);
+              if (selection) {
+                const range = window.getSelection()?.getRangeAt(0);
+                const rect = range?.getBoundingClientRect();
+                if (rect) setPopoverPosition({ x: rect.left + rect.width / 2, y: rect.top - 44 });
+              }
             }}
           >
             {isGeneratingImage ? (
@@ -820,16 +842,23 @@ export default function NotesPage() {
               </div>
             ) : null}
             {selectedText && generatedContent?.notes && (
-              <div className="frosted-overlay absolute left-1/2 top-3 z-20 flex -translate-x-1/2 gap-1 rounded-lg p-1">
-                <Button size="sm" variant="ghost" onClick={() => setSelectedText('')}>Explain simpler</Button>
-                <Button size="sm" variant="ghost" onClick={() => setSelectedText('')}>Make flashcard</Button>
-                <Button size="sm" variant="ghost" onClick={() => setSelectedText('')}>Quiz this</Button>
+              <div
+                className="fixed z-[80] flex -translate-x-1/2 gap-1 rounded-full border border-white/20 bg-zinc-950/85 p-1 text-white shadow-xl backdrop-blur-md"
+                style={{ left: popoverPosition.x, top: Math.max(8, popoverPosition.y) }}
+              >
+                <Button size="sm" variant="ghost" className="h-8 rounded-full text-white hover:bg-white/10" onClick={() => setSelectedAction('explain')}>Explain simpler</Button>
+                <Button size="sm" variant="ghost" className="h-8 rounded-full text-white hover:bg-white/10" onClick={() => setSelectedAction('cards')}>Make flashcard</Button>
+                <Button size="sm" variant="ghost" className="h-8 rounded-full text-white hover:bg-white/10" onClick={() => setSelectedAction('quiz')}>Quiz this</Button>
               </div>
             )}
             {generatedContent?.notes ? (
               <div className="grid lg:grid-cols-[minmax(0,1.2fr)_minmax(260px,0.8fr)]">
                 <div className="min-w-0">{renderContent()}</div>
-                <StudyStudio notes={generatedContent.notes} />
+                <StudyStudio
+                  notes={generatedContent.notes}
+                  selectedText={selectedText}
+                  selectedAction={selectedAction}
+                />
               </div>
             ) : renderContent()}
           </CardContent>

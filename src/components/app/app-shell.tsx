@@ -3,10 +3,14 @@
 import { useAuth } from '@clerk/nextjs';
 import { useEffect, useState } from 'react';
 import AppHeader from './header';
+import GuestAuthModal from './guest-auth-modal';
+import type { GuestAction } from '@/lib/guest-mode';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const { isLoaded, isSignedIn } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+  const [guestModalOpen, setGuestModalOpen] = useState(false);
+  const [guestModalAction, setGuestModalAction] = useState<GuestAction>('generation');
 
   useEffect(() => {
     setCollapsed(window.localStorage.getItem('scripto-sidebar-collapsed') === 'true');
@@ -23,6 +27,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [guest, setGuest] = useState(false);
   useEffect(() => {
     setGuest(window.localStorage.getItem('scripto_guest') === '1');
+    const handleGuestAuth = (event: Event) => {
+      setGuestModalAction((event as CustomEvent<GuestAction>).detail);
+      setGuestModalOpen(true);
+    };
+    window.addEventListener('scripto:guest-auth', handleGuestAuth);
     const handleSubmitKey = (event: KeyboardEvent) => {
       if (event.key !== 'Enter') return;
       const target = event.target as HTMLElement;
@@ -41,7 +50,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       submitButton?.click();
     };
     window.addEventListener('keydown', handleSubmitKey);
-    return () => window.removeEventListener('keydown', handleSubmitKey);
+    return () => {
+      window.removeEventListener('keydown', handleSubmitKey);
+      window.removeEventListener('scripto:guest-auth', handleGuestAuth);
+    };
   }, []);
 
   const workspaceLayout = isLoaded && (isSignedIn || guest);
@@ -56,6 +68,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       }>
         {children}
       </div>
+      <GuestAuthModal open={guestModalOpen} onOpenChange={setGuestModalOpen} action={guestModalAction} />
     </div>
   );
 }

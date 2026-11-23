@@ -9,6 +9,8 @@ import { cn } from '@/lib/utils';
 import * as LucideIcons from 'lucide-react';
 import { getUserProgressAction } from '@/app/actions/user-data';
 import { readLocalProgress } from '@/lib/gamification';
+import { useAuth } from '@clerk/nextjs';
+import { requestGuestAuth } from '@/lib/guest-mode';
 
 type IconName = keyof typeof LucideIcons;
 
@@ -20,9 +22,14 @@ const AchievementIcon = ({ name, className }: { name: IconName; className?: stri
 
 
 export default function AchievementsPage() {
+    const { isLoaded, isSignedIn } = useAuth();
     const [claimedAchievements, setClaimedAchievements] = useState<Set<string>>(new Set());
     const [isClient, setIsClient] = useState(false);
     const [syncWarning, setSyncWarning] = useState(false);
+
+    useEffect(() => {
+        if (isLoaded && !isSignedIn) requestGuestAuth('badges');
+    }, [isLoaded, isSignedIn]);
 
     useEffect(() => {
         let active = true;

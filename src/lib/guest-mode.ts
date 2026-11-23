@@ -53,3 +53,18 @@ export function consumeGuestGeneration(): 'allowed' | 'limited' {
   window.localStorage.setItem(GUEST_GENERATION_KEY, String(count + 1));
   return 'allowed';
 }
+
+export function requestGuestAuth(action: GuestAction): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent<GuestAction>('scripto:guest-auth', { detail: action }));
+}
+
+export function reserveGuestGeneration(isSignedIn: boolean): boolean {
+  if (isSignedIn) return true;
+  if (!isGuestMode()) return true;
+  if (consumeGuestGeneration() === 'limited') {
+    requestGuestAuth('generation');
+    return false;
+  }
+  return true;
+}

@@ -24,6 +24,8 @@ import { recordActivityAction } from '@/app/actions/user-data';
 import { recordActivityLocally, type ActivityProgressUpdate, type ActivityInput } from '@/lib/gamification';
 import AIErrorBanner from '@/components/app/ai-error-banner';
 import { getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
+import { useAuth } from '@clerk/nextjs';
+import { reserveGuestGeneration } from '@/lib/guest-mode';
 
 
 const questionTypes = [
@@ -71,6 +73,7 @@ const ExamTimer = ({ durationMinutes, onTimeUp }: { durationMinutes: number; onT
 
 
 export default function ExamPage() {
+  const { isSignedIn } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [generatedExam, setGeneratedExam] = useState<GenerateExamOutput | null>(null);
@@ -96,6 +99,7 @@ export default function ExamPage() {
 
   async function onConfigSubmit(values: GenerateExamInput) {
     if (generationInProgressRef.current) return;
+    if (!reserveGuestGeneration(Boolean(isSignedIn))) return;
     generationInProgressRef.current = true;
     setIsLoading(true);
     setGenerationError(null);

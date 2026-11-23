@@ -28,6 +28,8 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import AIErrorBanner from '@/components/app/ai-error-banner';
 import { getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
+import { useAuth } from '@clerk/nextjs';
+import { reserveGuestGeneration } from '@/lib/guest-mode';
 
 const initialNodes: Node[] = [
   {
@@ -56,6 +58,7 @@ function MonochromeConceptNode({ data }: NodeProps<{ label: string; description?
 const nodeTypes = { monochromeConcept: MonochromeConceptNode };
 
 export default function ConceptMapPage() {
+  const { isSignedIn } = useAuth();
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [topic, setTopic] = useState('');
@@ -110,6 +113,7 @@ export default function ConceptMapPage() {
 
   const handleGenerate = async () => {
     if (generationInProgressRef.current) return;
+    if (!reserveGuestGeneration(Boolean(isSignedIn))) return;
     if (!topic.trim()) {
       setGenerationError('Enter a topic to generate a concept map.');
       return;

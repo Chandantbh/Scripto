@@ -27,13 +27,20 @@ import {
   type ActivityRecord,
   type GamificationStats,
 } from '@/lib/gamification';
+import { useAuth } from '@clerk/nextjs';
+import { requestGuestAuth } from '@/lib/guest-mode';
 
 export default function ProgressPage() {
+  const { isLoaded, isSignedIn } = useAuth();
   const [activityHistory, setActivityHistory] = useState<ActivityRecord[]>([]);
   const [stats, setStats] = useState<GamificationStats>(createEmptyGamificationStats());
   const [isClient, setIsClient] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [syncWarning, setSyncWarning] = useState(false);
+
+  useEffect(() => {
+    if (isLoaded && !isSignedIn) requestGuestAuth('progress');
+  }, [isLoaded, isSignedIn]);
 
   useEffect(() => {
     let active = true;

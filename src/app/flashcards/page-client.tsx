@@ -18,6 +18,8 @@ import { extractTextFromFile } from '@/lib/file-parser';
 import AIErrorBanner from '@/components/app/ai-error-banner';
 import { getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
 import GenerationSkeleton from '@/components/app/generation-skeleton';
+import { useAuth } from '@clerk/nextjs';
+import { reserveGuestGeneration } from '@/lib/guest-mode';
 
 type InputMode = 'text' | 'topic' | 'youtube' | 'file';
 
@@ -30,6 +32,7 @@ interface GeneratedContent {
 }
 
 export default function FlashcardsPage() {
+  const { isSignedIn } = useAuth();
   const searchParams = useSearchParams();
   const [inputMode, setInputMode] = useState<InputMode>('text');
   const [text, setText] = useState('');
@@ -54,6 +57,7 @@ export default function FlashcardsPage() {
 
   const handleGenerate = async () => {
     if (generationInProgressRef.current) return;
+    if (!reserveGuestGeneration(Boolean(isSignedIn))) return;
     generationInProgressRef.current = true;
     setIsLoading(true);
     setGenerationError(null);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BrainCircuit, HelpCircle, Layers, Network, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -8,34 +8,69 @@ import { Progress } from '@/components/ui/progress';
 import { generateQuiz } from '@/ai/flows/generate-quiz';
 import { generateFlashcards } from '@/ai/flows/generate-flashcards';
 import { unwrapAIActionResult } from '@/lib/ai-action-result';
+import { reserveGuestGeneration } from '@/lib/guest-mode';
+import { useAuth } from '@clerk/nextjs';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 type StudioTab = 'quiz' | 'cards' | 'map' | 'ask';
 
-export default function StudyStudio({ notes }: { notes: string }) {
+export type StudyAction = 'explain' | 'cards' | 'quiz';
+
+export default function StudyStudio({
+  notes,
+  selectedText = '',
+  selectedAction,
+}: {
+  notes: string;
+  selectedText?: string;
+  selectedAction?: StudyAction;
+}) {
+  const { isSignedIn } = useAuth();
   const [tab, setTab] = useState<StudioTab>('quiz');
   const [mastery, setMastery] = useState(18);
   const [questionText, setQuestionText] = useState('');
   const [answer, setAnswer] = useState('');
   const [items, setItems] = useState<{ question: string; answer?: string }[]>([]);
   const [loading, setLoading] = useState(false);
+  const lastActionRef = useRef('');
 
   useEffect(() => {
     setMastery(notes ? Math.min(100, 18 + Math.round(notes.length / 180)) : 0);
   }, [notes]);
 
-  const generateRecall = async (kind: 'quiz' | 'cards') => {
+  useEffect(() => {
+    if (!selectedAction || !selectedText) return;
+    const actionKey = `${selectedAction}:${selectedText}`;
+    if (lastActionRef.current === actionKey) return;
+    lastActionRef.current = actionKey;
+    if (selectedAction === 'explain') {
+      setTab('ask');
+      setQuestionText(`Explain this more simply: ${selectedText}`);
+      setAnswer('');
+    } else if (selectedAction === 'cards') {
+      setTab('cards');
+      void generateRecall('cards', selectedText);
+    } else {
+      setTab('quiz');
+      void generateRecall('quiz', selectedText);
+    }
+  }, [selectedAction, selectedText]);
+
+  const generateRecall = async (kind: 'quiz' | 'cards', focusText = '') => {
     if (!notes.trim()) return;
+    if (!reserveGuestGeneration(Boolean(isSignedIn))) return;
     setLoading(true);
     try {
+      const source = focusText ? `${notes}\n\nFocus especially on: ${focusText}` : notes;
       if (kind === 'quiz') {
-        const result = unwrapAIActionResult(await generateQuiz({ text: notes, questionCount: 5 }));
+        const result = unwrapAIActionResult(await generateQuiz({ text: source, questionCount: 5 }));
         setItems(result.questions.map(question => ({
           question: question.question,
           answer: question.answer,
         })));
         setMastery(value => Math.min(100, value + 12));
       } else {
-        const result = unwrapAIActionResult(await generateFlashcards({ text: notes }));
+        const result = unwrapAIActionResult(await generateFlashcards({ text: source }));
         setItems(result.flashcards.map(card => ({
           question: card.question,
           answer: card.answer,
@@ -49,7 +84,8 @@ export default function StudyStudio({ notes }: { notes: string }) {
 
   const askMargin = () => {
     if (!questionText.trim()) return;
-    setAnswer(`Review this section in the notes: “${questionText.trim()}”`);
+    setAnswer(`From the current notes: “${questionText.trim().replace(/\?+$/, '')}”`);
+    setMastery(value => Math.min(100, value + 4));
   };
 
   return (
@@ -83,27 +119,47 @@ export default function StudyStudio({ notes }: { notes: string }) {
       <div className="flex-1 overflow-auto p-4">
         {tab === 'quiz' && (
           <div className="space-y-3">
-            <Button className="w-full" variant="secondary" disabled={loading} onClick={() => void generateRecall('quiz')}>
-              Generate quiz from these notes
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button data-enter-submit="true" className="w-full" variant="secondary" disabled={loading} onClick={() => void generateRecall('quiz')}>
+                  Generate quiz from these notes
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Enter ↵ to submit</TooltipContent>
+            </Tooltip>
             {items.map((item, index) => (
-              <div key={index} className="rounded-lg border border-border p-3">
+              <button
+                key={index}
+                type="button"
+                onClick={() => setMastery(value => Math.min(100, value + 3))}
+                className="w-full rounded-lg border border-border p-3 text-left"
+              >
                 <p className="text-sm font-medium">{item.question}</p>
                 {item.answer && <p className="mt-2 text-xs text-muted-foreground">Answer: {item.answer}</p>}
-              </div>
+              </button>
             ))}
           </div>
         )}
         {tab === 'cards' && (
           <div className="space-y-3">
-            <Button className="w-full" variant="secondary" disabled={loading} onClick={() => void generateRecall('cards')}>
-              Make flashcards
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button data-enter-submit="true" className="w-full" variant="secondary" disabled={loading} onClick={() => void generateRecall('cards')}>
+                  Make flashcards
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Enter ↵ to submit</TooltipContent>
+            </Tooltip>
             {items.map((item, index) => (
-              <div key={index} className="rounded-lg border border-border p-3">
+              <button
+                key={index}
+                type="button"
+                onClick={() => setMastery(value => Math.min(100, value + 4))}
+                className="w-full rounded-lg border border-border p-3 text-left"
+              >
                 <p className="text-sm font-medium">{item.question}</p>
                 {item.answer && <p className="mt-2 text-xs text-muted-foreground">{item.answer}</p>}
-              </div>
+              </button>
             ))}
           </div>
         )}
@@ -134,6 +190,12 @@ export default function StudyStudio({ notes }: { notes: string }) {
             <Textarea
               value={questionText}
               onChange={event => setQuestionText(event.target.value)}
+              onKeyDown={event => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
+                  askMargin();
+                }
+              }}
               placeholder="Ask about the current notes..."
               className="min-h-24"
             />

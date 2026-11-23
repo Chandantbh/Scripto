@@ -17,6 +17,8 @@ import AIErrorBanner from '@/components/app/ai-error-banner';
 import { AIActionFailure, getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
 import GenerationSkeleton from '@/components/app/generation-skeleton';
 import { readStudyPreferences } from '@/components/app/settings-dialog';
+import { useAuth } from '@clerk/nextjs';
+import { reserveGuestGeneration } from '@/lib/guest-mode';
 
 type Difficulty = 'easy' | 'medium' | 'hard';
 type InputMode = 'text' | 'file' | 'image' | 'youtube';
@@ -35,6 +37,7 @@ const fileToDataURL = (file: File): Promise<string> => {
 const MAX_IMAGE_UPLOAD_BYTES = 512 * 1024;
 
 export default function Eli5Page() {
+  const { isSignedIn } = useAuth();
   const [inputText, setInputText] = useState('');
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [difficulty, setDifficulty] = useState<Difficulty>('easy');
@@ -54,6 +57,7 @@ export default function Eli5Page() {
 
   const handleGenerate = async () => {
     if (generationInProgressRef.current) return;
+    if (!reserveGuestGeneration(Boolean(isSignedIn))) return;
     generationInProgressRef.current = true;
     setIsLoading(true);
     setGenerationError(null);

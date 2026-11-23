@@ -6,6 +6,7 @@ import { Inter, Poppins, Roboto_Mono } from 'next/font/google';
 import { cn } from '@/lib/utils';
 import { ClerkProvider } from '@clerk/nextjs';
 import { ThemeProvider } from '@/components/app/theme-provider';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 const themeInitializationScript = `
   (() => {
@@ -134,7 +135,9 @@ export default function RootLayout({
           afterSignOutUrl="/"
         >
           <ThemeProvider>
-            <AppShell>{children}</AppShell>
+            <TooltipProvider delayDuration={300}>
+              <AppShell>{children}</AppShell>
+            </TooltipProvider>
             <Toaster />
           </ThemeProvider>
         </ClerkProvider>
