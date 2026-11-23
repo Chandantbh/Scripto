@@ -7,6 +7,7 @@ const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const MAX_REQUESTS_PER_MINUTE = 10;
 const MAX_REQUESTS_PER_HOUR = 50;
+const MAX_GUEST_REQUESTS_PER_HOUR = 3;
 const CLEANUP_INTERVAL_MS = 5 * MINUTE_MS;
 
 type RateWindow = 'minute' | 'hour';
@@ -34,8 +35,10 @@ export async function checkAIRateLimit(now = Date.now()): Promise<RateLimitDecis
   const activeRequests = (requestTimestamps.get(identity) ?? [])
     .filter(timestamp => timestamp > now - HOUR_MS);
   const minuteRequests = activeRequests.filter(timestamp => timestamp > now - MINUTE_MS);
+  const hourlyLimit = userId ? MAX_REQUESTS_PER_HOUR : MAX_GUEST_REQUESTS_PER_HOUR;
+  const minuteLimit = userId ? MAX_REQUESTS_PER_MINUTE : 3;
 
-  if (activeRequests.length >= MAX_REQUESTS_PER_HOUR) {
+  if (activeRequests.length >= hourlyLimit) {
     requestTimestamps.set(identity, activeRequests);
     return {
       allowed: false,
@@ -44,7 +47,7 @@ export async function checkAIRateLimit(now = Date.now()): Promise<RateLimitDecis
     };
   }
 
-  if (minuteRequests.length >= MAX_REQUESTS_PER_MINUTE) {
+  if (minuteRequests.length >= minuteLimit) {
     requestTimestamps.set(identity, activeRequests);
     return {
       allowed: false,

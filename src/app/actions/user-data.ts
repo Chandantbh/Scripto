@@ -32,12 +32,80 @@ const saveNoteSchema = z.object({
 
 const noteIdSchema = z.string().uuid();
 
+export interface UserDashboardData {
+  progress: UserProgress;
+  savedNotes: SavedNote[];
+  recentActivity: ActivityRecord[];
+  stats: GamificationStats;
+  recentNotes: SavedNote[];
+  recentActivities: ActivityRecord[];
+  synced: boolean;
+  averageQuizScore: number;
+}
+
+export async function getUserDashboardDataAction(): Promise<UserDashboardData | null> {
+  const { userId } = await auth();
+  if (!userId) return null;
+
+  try {
+    const client = requireSupabaseClient();
+    const [progress, savedNotes] = await Promise.all([
+      loadUserProgress(client, userId),
+      getSavedNotesForUser(client, userId),
+    ]);
+
+    const now = new Date();
+    const startOfWeek = new Date(now);
+    const day = startOfWeek.getDay();
+    const distanceToMonday = day === 0 ? 6 : day - 1;
+    startOfWeek.setHours(0, 0, 0, 0);
+    startOfWeek.setDate(startOfWeek.getDate() - distanceToMonday);
+
+    const quizThisWeek = progress.history.filter(activity =>
+      activity.type === 'quiz' &&
+      new Date(activity.date).getTime() >= startOfWeek.getTime()
+    );
+    const averageQuizScore = quizThisWeek.length
+      ? Math.round(
+          quizThisWeek.reduce(
+            (sum, activity) => sum + (activity.total ? (activity.score / activity.total) * 100 : 0),
+            0,
+          ) / quizThisWeek.length,
+        )
+      : 0;
+    const recentActivity = [...progress.history].reverse().slice(0, 6);
+    const recentNotes = savedNotes.slice(0, 6);
+
+    return {
+      progress,
+      savedNotes,
+      recentActivity,
+      stats: progress.stats,
+      recentNotes,
+      recentActivities: recentActivity,
+      synced: true,
+      averageQuizScore,
+    };
+  } catch (error) {
+    console.warn('Scripto dashboard data unavailable.', getDatabaseErrorDetails(error));
+    return createDashboardFallback();
+  }
+}
+
 export async function getUserProgressAction(): Promise<UserProgress | null> {
   const { userId } = await auth();
   if (!userId) return null;
 
-  const client = requireSupabaseClient();
-  return loadUserProgress(client, userId);
+  try {
+    const client = requireSupabaseClient();
+    return loadUserProgress(client, userId);
+  } catch (error) {
+    console.warn('Scripto progress unavailable.', getDatabaseErrorDetails(error));
+    return {
+      stats: createEmptyGamificationStats(),
+      history: [],
+    };
+  }
 }
 
 export async function recordActivityAction(
@@ -105,22 +173,42 @@ export async function getSavedNotesAction(): Promise<SavedNote[] | null> {
   const { userId } = await auth();
   if (!userId) return null;
 
-  const client = requireSupabaseClient();
-  const { data, error } = await client
-    .from('saved_notes')
-    .select('id, title, content, source_type, created_at, updated_at')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false });
-  if (error) reportDatabaseError('loading saved notes', error);
+  try {
+    const client = requireSupabaseClient();
+    return getSavedNotesForUser(client, userId);
+  } catch (error) {
+    console.warn('Scripto saved notes unavailable.', getDatabaseErrorDetails(error));
+    return [];
+  }
+}
 
-  return (data ?? []).map(row => ({
-    id: row.id,
-    title: row.title,
-    content: row.content,
-    sourceType: row.source_type as NoteSourceType,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
+async function getSavedNotesForUser(
+  client: NonNullable<ReturnType<typeof getSupabaseServerClient>>,
+  userId: string,
+): Promise<SavedNote[]> {
+  try {
+    const { data, error } = await client
+      .from('saved_notes')
+      .select('id, title, content, source_type, created_at, updated_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.warn('Scripto saved notes unavailable.', getDatabaseErrorDetails(error));
+      return [];
+    }
+
+    return (data ?? []).map(row => ({
+      id: row.id,
+      title: row.title,
+      content: row.content,
+      sourceType: row.source_type as NoteSourceType,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  } catch (error) {
+    console.warn('Scripto saved notes unavailable.', getDatabaseErrorDetails(error));
+    return [];
+  }
 }
 
 export async function saveNoteAction(
@@ -179,8 +267,9 @@ async function loadUserProgress(
   client: NonNullable<ReturnType<typeof getSupabaseServerClient>>,
   userId: string,
 ): Promise<UserProgress> {
-  const [{ data: statsRow, error: statsError }, { data: historyRows, error: historyError }] =
-    await Promise.all([
+  try {
+    const [{ data: statsRow, error: statsError }, { data: historyRows, error: historyError }] =
+      await Promise.all([
       client
         .from('user_stats')
         .select('xp, streak, longest_streak, last_activity_date, achievements')
@@ -191,30 +280,71 @@ async function loadUserProgress(
         .select('type, topic, score, total, grade, created_at')
         .eq('user_id', userId)
         .order('created_at', { ascending: true }),
-    ]);
+      ]);
 
-  if (statsError) reportDatabaseError('loading user stats', statsError);
-  if (historyError) reportDatabaseError('loading activity history', historyError);
+    if (statsError) {
+      console.warn('Scripto user stats unavailable.', getDatabaseErrorDetails(statsError));
+    }
+    if (historyError) {
+      console.warn('Scripto activity history unavailable.', getDatabaseErrorDetails(historyError));
+    }
 
-  return {
-    stats: statsRow
-      ? {
-          xp: Number(statsRow.xp),
-          streak: Number(statsRow.streak),
-          longestStreak: Number(statsRow.longest_streak),
-          lastActivityDate: statsRow.last_activity_date,
-          achievements: statsRow.achievements ?? [],
-        }
-      : createEmptyGamificationStats(),
-    history: (historyRows ?? []).map(row => ({
+    return {
+      stats: !statsError && statsRow
+        ? {
+            xp: Number(statsRow.xp),
+            streak: Number(statsRow.streak),
+            longestStreak: Number(statsRow.longest_streak),
+            lastActivityDate: statsRow.last_activity_date,
+            achievements: statsRow.achievements ?? [],
+          }
+        : createEmptyGamificationStats(),
+      history: !historyError
+        ? (historyRows ?? []).map(row => ({
+            type: row.type,
+            topic: row.topic,
+            score: Number(row.score),
+            total: Number(row.total),
+            date: row.created_at,
+            ...(row.grade ? { grade: row.grade } : {}),
+          }))
+        : [],
+    };
+  } catch (error) {
+    console.warn('Scripto progress unavailable.', getDatabaseErrorDetails(error));
+    return {
+      stats: createEmptyGamificationStats(),
+      history: [],
+    };
+  }
+}
+
+async function getActivityHistoryForUser(
+  client: NonNullable<ReturnType<typeof getSupabaseServerClient>>,
+  userId: string,
+): Promise<ActivityRecord[]> {
+  try {
+    const { data, error } = await client
+      .from('activity_history')
+      .select('type, topic, score, total, grade, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true });
+    if (error) {
+      console.warn('Scripto activity history unavailable.', getDatabaseErrorDetails(error));
+      return [];
+    }
+    return (data ?? []).map(row => ({
       type: row.type,
       topic: row.topic,
       score: Number(row.score),
       total: Number(row.total),
       date: row.created_at,
       ...(row.grade ? { grade: row.grade } : {}),
-    })),
-  };
+    }));
+  } catch (error) {
+    console.warn('Scripto activity history unavailable.', getDatabaseErrorDetails(error));
+    return [];
+  }
 }
 
 function requireSupabaseClient() {
@@ -235,6 +365,39 @@ function toDatabaseStats(userId: string, stats: GamificationStats) {
     achievements: stats.achievements,
     updated_at: new Date().toISOString(),
   };
+}
+
+function createDashboardFallback(): UserDashboardData {
+  const stats = createEmptyGamificationStats();
+  return {
+    progress: {
+      stats,
+      history: [],
+    },
+    savedNotes: [],
+    recentActivity: [],
+    stats,
+    recentNotes: [],
+    recentActivities: [],
+    synced: false,
+    averageQuizScore: 0,
+  };
+}
+
+function getDatabaseErrorDetails(error: unknown): string {
+  if (error instanceof Error) {
+    const code = typeof error === 'object' && 'code' in error
+      ? ` code=${String(error.code)}`
+      : '';
+    return `${error.message}${code}`;
+  }
+  if (typeof error === 'object' && error !== null) {
+    const record = error as Record<string, unknown>;
+    const message = typeof record.message === 'string' ? record.message : 'Unknown database error';
+    const code = typeof record.code === 'string' ? ` code=${record.code}` : '';
+    return `${message}${code}`;
+  }
+  return String(error);
 }
 
 function reportDatabaseError(operation: string, error: unknown): never {

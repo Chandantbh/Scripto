@@ -197,7 +197,7 @@ export default function ConceptMapPage() {
             <div className="space-y-2">
                 <Label>Topic</Label>
                 <Input 
-                    placeholder="e.g. Photosynthesis" 
+                    placeholder="Drop a topic before the syllabus humbles you..."
                     value={topic} 
                     maxLength={200}
                     onChange={e => setTopic(e.target.value)}
@@ -213,7 +213,7 @@ export default function ConceptMapPage() {
                     className="min-h-[100px]"
                 />
             </div>
-            <Button onClick={handleGenerate} disabled={isLoading} className="w-full">
+            <Button data-enter-submit="true" onClick={handleGenerate} disabled={isLoading} className="group relative w-full">
                 {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
                 Generate Map
             </Button>

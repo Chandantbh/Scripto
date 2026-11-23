@@ -309,7 +309,7 @@ export default function ExamPage() {
                       <FormItem>
                         <FormLabel>Subject</FormLabel>
                         <FormControl>
-                          <Input placeholder="e.g., Biology" maxLength={200} {...field} />
+                          <Input placeholder="Drop a subject before the syllabus humbles you..." maxLength={200} {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -397,7 +397,7 @@ export default function ExamPage() {
                   )}
                 />
 
-                <Button type="submit" disabled={isLoading} className="w-full" size="lg">
+                <Button data-enter-submit="true" type="submit" disabled={isLoading} className="group relative w-full" size="lg">
                   {isLoading ? <Loader2 className="animate-spin" /> : <Wand2 />}
                   Generate Exam
                 </Button>

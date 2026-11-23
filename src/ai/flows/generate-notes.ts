@@ -21,6 +21,7 @@ import {type AIActionResult} from '@/types/ai-action';
 const GenerateNotesInputSchema = z.object({
   text: z.string().trim().min(1).max(MAX_AI_TEXT_CHARACTERS).optional().describe('The text to generate notes from.'),
   youtubeUrl: z.string().trim().min(1).max(2_048).optional().describe('A YouTube video URL to generate notes from.'),
+  format: z.enum(['Concise', 'Detailed', 'Cornell']).optional().describe('Preferred note format.'),
 }).refine(input => Boolean(input.text || input.youtubeUrl), 'Provide text or a YouTube URL.')
   .refine(input => !(input.text && input.youtubeUrl), 'Provide only one content source.');
 export type GenerateNotesInput = z.infer<typeof GenerateNotesInputSchema>;
@@ -36,9 +37,10 @@ export async function generateNotes(input: GenerateNotesInput): Promise<AIAction
 
 const generateNotesPrompt = ai.definePrompt({
   name: 'generateNotesPrompt',
-  input: { schema: z.object({ content: z.string().optional(), youtubeUrl: z.string().optional() }) },
+  input: { schema: z.object({ content: z.string().optional(), youtubeUrl: z.string().optional(), format: z.string().optional() }) },
   output: {schema: GenerateNotesOutputSchema},
   prompt: `You are an expert note-taker. Generate detailed, well-structured, and easy-to-understand notes from the following content. Use markdown for formatting, including headings, lists, and bold text to highlight key points.
+  Use the requested {{{format}}} note format. If Concise, keep it short. If Cornell, use Cues, Notes, and Summary sections.
 
   {{#if content}}Content to analyze: {{{content}}}{{/if}}
   {{#if youtubeUrl}}YouTube video: {{media url=youtubeUrl}}{{/if}}
@@ -66,7 +68,11 @@ const generateNotesFlow = ai.defineFlow(
     }
     
     const {output} = await generateWithModelFallback(model =>
-      generateNotesPrompt({ content: content || undefined, youtubeUrl }, model ? {model} : undefined)
+      generateNotesPrompt({
+        content: content || undefined,
+        youtubeUrl,
+        format: input.format ?? 'Detailed',
+      }, model ? {model} : undefined)
     );
 
     if (!output) {

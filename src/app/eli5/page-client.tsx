@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { BrainCircuit, Loader2, Wand2, MessageCircleQuestion, FileText, Upload, Youtube, FileType } from 'lucide-react';
 import { explainLikeImFive, type ExplainLikeImFiveOutput, type ExplainLikeImFiveInput } from '@/ai/flows/eli5';
 import { extractTextFromFile } from '@/lib/file-parser';
@@ -15,6 +15,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import AIErrorBanner from '@/components/app/ai-error-banner';
 import { AIActionFailure, getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
+import GenerationSkeleton from '@/components/app/generation-skeleton';
+import { readStudyPreferences } from '@/components/app/settings-dialog';
 
 type Difficulty = 'easy' | 'medium' | 'hard';
 type InputMode = 'text' | 'file' | 'image' | 'youtube';
@@ -44,6 +46,11 @@ export default function Eli5Page() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
   const generationInProgressRef = useRef(false);
+
+  useEffect(() => {
+    const depth = readStudyPreferences().explainerDepth;
+    setDifficulty(depth === 'Simple' ? 'easy' : depth === 'Technical' ? 'hard' : 'medium');
+  }, []);
 
   const handleGenerate = async () => {
     if (generationInProgressRef.current) return;
@@ -104,20 +111,7 @@ export default function Eli5Page() {
 
   const renderContent = () => {
     if (isLoading) {
-      return (
-        <div className="p-6 space-y-4">
-          <Skeleton className="h-8 w-1/3" />
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-4/5" />
-          <div className="flex items-center justify-center pt-8">
-             <div className="text-center space-y-2">
-                <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
-                <p className="text-sm text-muted-foreground">Reading & Explaining...</p>
-             </div>
-          </div>
-        </div>
-      );
+      return <GenerationSkeleton />;
     }
 
     if (!generatedContent || !generatedContent.explanation) {
@@ -170,7 +164,7 @@ export default function Eli5Page() {
               <CardContent className="space-y-4">
                  <TabsContent value="text" className="mt-0">
                     <Textarea
-                        placeholder="Paste text here to explain..."
+                        placeholder="Paste that concept you're about to wing..."
                         value={inputText}
                         maxLength={15000}
                         onChange={(e) => setInputText(e.target.value)}
@@ -195,7 +189,7 @@ export default function Eli5Page() {
                 <TabsContent value="youtube" className="mt-0">
                     <Input
                         type="url"
-                        placeholder="https://www.youtube.com/watch?v=..."
+                        placeholder="Paste that 2x-speed lecture link..."
                         value={youtubeUrl}
                         maxLength={2048}
                         onChange={(e) => setYoutubeUrl(e.target.value)}
@@ -218,7 +212,7 @@ export default function Eli5Page() {
                 </div>
               </CardContent>
               <CardFooter>
-                <Button onClick={handleGenerate} disabled={isLoading} className="w-full" size="lg">
+                <Button data-enter-submit="true" onClick={handleGenerate} disabled={isLoading} className="group relative w-full" size="lg">
                   {isLoading ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (

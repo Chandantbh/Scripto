@@ -1,6 +1,7 @@
 ﻿'use client';
 
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { BrainCircuit, Loader2, Wand2, Layers, BookOpen, Upload, Download, FileType, Youtube } from 'lucide-react';
 
 import { generateFlashcards, type GenerateFlashcardsOutput, type GenerateFlashcardsInput } from '@/ai/flows/generate-flashcards';
@@ -16,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { extractTextFromFile } from '@/lib/file-parser';
 import AIErrorBanner from '@/components/app/ai-error-banner';
 import { getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
+import GenerationSkeleton from '@/components/app/generation-skeleton';
 
 type InputMode = 'text' | 'topic' | 'youtube' | 'file';
 
@@ -28,6 +30,7 @@ interface GeneratedContent {
 }
 
 export default function FlashcardsPage() {
+  const searchParams = useSearchParams();
   const [inputMode, setInputMode] = useState<InputMode>('text');
   const [text, setText] = useState('');
   const [topic, setTopic] = useState('');
@@ -37,6 +40,17 @@ export default function FlashcardsPage() {
   const [generationError, setGenerationError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const generationInProgressRef = useRef(false);
+
+  useEffect(() => {
+    const mode = searchParams.get('mode');
+    if (mode === 'topic') setInputMode('topic');
+    if (mode === 'text') setInputMode('text');
+    if (mode === 'youtube') setInputMode('youtube');
+    if (mode === 'file') setInputMode('file');
+    if (searchParams.get('text')) setText(searchParams.get('text') ?? '');
+    if (searchParams.get('topic')) setTopic(searchParams.get('topic') ?? '');
+    if (searchParams.get('url')) setYoutubeUrl(searchParams.get('url') ?? '');
+  }, [searchParams]);
 
   const handleGenerate = async () => {
     if (generationInProgressRef.current) return;
@@ -113,18 +127,14 @@ export default function FlashcardsPage() {
 
   const renderContent = () => {
     if (isLoading) {
-      return (
-        <div className="p-6 space-y-4 flex flex-col items-center">
-            <Skeleton className="h-80 w-full max-w-md" />
-        </div>
-      );
+      return <GenerationSkeleton kind="cards" />;
     }
 
     if (!generatedContent || !generatedContent.flashcards || generatedContent.flashcards.length === 0) {
       return (
         <div className="flex flex-col items-center justify-center h-full text-center p-8">
           <BrainCircuit className="h-16 w-16 text-muted-foreground/50 mb-4" />
-          <h3 className="text-lg font-semibold">Your flashcards will appear here</h3>
+          <h3 className="text-lg font-semibold">Nothing to quiz yet. Feed me a topic first.</h3>
           <p className="text-sm text-muted-foreground">
             Enter some text, a topic, or import a file to get started.
           </p>
@@ -167,7 +177,7 @@ export default function FlashcardsPage() {
                              <CardTitle className="mb-2 text-xl">Enter Your Study Material</CardTitle>
                              <CardDescription className="mb-4">Paste your text below to get started.</CardDescription>
                              <Textarea
-                                placeholder="Paste your notes, an article, or any text you want to study..."
+                                placeholder="Paste the wall of text you're pretending to read..."
                                 className="min-h-[250px] text-base"
                                 value={text}
                                 maxLength={15000}
@@ -187,7 +197,7 @@ export default function FlashcardsPage() {
                             <CardTitle className="mb-2 text-xl">Generate From Topic</CardTitle>
                             <CardDescription className="mb-4">Enter a topic and we'll generate the study materials for you.</CardDescription>
                             <Input
-                                placeholder="e.g., 'The basics of photosynthesis'"
+                                placeholder="Drop a topic before the syllabus humbles you..."
                                 className="text-base h-12"
                                 value={topic}
                                 maxLength={200}
@@ -199,7 +209,7 @@ export default function FlashcardsPage() {
                             <CardDescription className="mb-4">Enter a YouTube video URL and we'll create flashcards from its transcript.</CardDescription>
                             <Input
                                 type="url"
-                                placeholder="https://www.youtube.com/watch?v=..."
+                                placeholder="Paste that 2x-speed lecture link..."
                                 value={youtubeUrl}
                                 maxLength={2048}
                                 onChange={(e) => setYoutubeUrl(e.target.value)}
@@ -207,7 +217,7 @@ export default function FlashcardsPage() {
                         </TabsContent>
                     </CardContent>
                     <CardFooter className="flex-col sm:flex-row gap-2">
-                        <Button onClick={handleGenerate} disabled={isLoading} className="w-full" size="lg">
+                        <Button data-enter-submit="true" onClick={handleGenerate} disabled={isLoading} className="group relative w-full" size="lg">
                             {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
                             Generate Flashcards
                         </Button>

@@ -20,6 +20,8 @@ const GenerateFromTopicInputSchema = z.object({
     MAX_TOPIC_CHARACTERS,
     `Topic must be ${MAX_TOPIC_CHARACTERS} characters or fewer.`
   ).describe('The topic to generate study materials for.'),
+  noteFormat: z.enum(['Concise', 'Detailed', 'Cornell']).optional(),
+  quizLength: z.number().int().min(1).max(15).optional(),
 });
 export type GenerateFromTopicInput = z.infer<typeof GenerateFromTopicInputSchema>;
 
@@ -58,8 +60,8 @@ const generateContentPrompt = ai.definePrompt({
   prompt: `You are an expert educator and content creator. Your task is to generate a comprehensive set of study materials based on the provided topic.
 
 The study materials should include:
-1.  **Notes**: A summary of the key concepts, definitions, and important points about the topic. Format this as markdown.
-2.  **Quiz**: A multiple-choice quiz with 5 questions to test understanding. Each question should have 4 options, a correct answer, and a single relevant emoji.
+1.  **Notes**: A summary of the key concepts, definitions, and important points about the topic. Format this as {{{noteFormat}}} markdown (use a Concise summary, Detailed sections, or Cornell Cues/Notes/Summary).
+2.  **Quiz**: A multiple-choice quiz with exactly {{{quizLength}}} questions to test understanding. Each question should have 4 options, a correct answer, and a single relevant emoji.
 3.  **Flashcards**: A set of 5-10 flashcards. For each flashcard, provide a clear "question", a concise "answer", a single, valid "emoji" character, and a "color" as a hex code.
 4.  **Image Hint**: A 1-2 word hint for a web search for a cover image for these study materials. For example, for "The basics of photosynthesis" you could provide "photosynthesis basics".
 
@@ -78,7 +80,11 @@ const generateFromTopicFlow = ai.defineFlow(
   },
   async input => {
     const {output} = await generateWithModelFallback(model =>
-      generateContentPrompt(input, model ? {model} : undefined)
+      generateContentPrompt({
+        ...input,
+        noteFormat: input.noteFormat ?? 'Detailed',
+        quizLength: input.quizLength ?? 10,
+      }, model ? {model} : undefined)
     );
 
     if (!output) {

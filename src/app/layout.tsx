@@ -129,8 +129,8 @@ export default function RootLayout({
               },
             },
           }}
-          signInFallbackRedirectUrl="/notes"
-          signUpFallbackRedirectUrl="/notes"
+          signInFallbackRedirectUrl="/workspace"
+          signUpFallbackRedirectUrl="/workspace"
           afterSignOutUrl="/"
         >
           <ThemeProvider>

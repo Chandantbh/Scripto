@@ -17,6 +17,9 @@ export default {
   		}
   	},
   	extend: {
+      boxShadow: {
+        editorial: '0 1px 2px rgba(0, 0, 0, 0.04)',
+      },
   		fontFamily: {
   			sans: [
   				'var(--font-sans)',

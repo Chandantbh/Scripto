@@ -2,6 +2,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   BrainCircuit,
   BookmarkPlus,
@@ -50,6 +51,11 @@ import {
 } from '@/app/actions/user-data';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import type { NoteSourceType, SavedNote } from '@/types/user-data';
+import GenerationSkeleton from '@/components/app/generation-skeleton';
+import { readStudyPreferences } from '@/components/app/settings-dialog';
+import GuestAuthModal from '@/components/app/guest-auth-modal';
+import { consumeGuestGeneration, isGuestMode } from '@/lib/guest-mode';
+import StudyStudio from '@/components/app/study-studio';
 
 type InputMode = 'from-text' | 'from-topic' | 'from-youtube' | 'from-file';
 
@@ -137,6 +143,7 @@ function deleteLocalNote(id: string): void {
 }
 
 export default function NotesPage() {
+  const searchParams = useSearchParams();
   const [inputMode, setInputMode] = useState<InputMode>('from-text');
   const [text, setText] = useState('');
   const [topic, setTopic] = useState('');
@@ -162,6 +169,23 @@ export default function NotesPage() {
 
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [guestModalOpen, setGuestModalOpen] = useState(false);
+  const [guestModalAction, setGuestModalAction] = useState<'save-note' | 'generation'>('save-note');
+  const [selectedText, setSelectedText] = useState('');
+
+  useEffect(() => {
+    const mode = searchParams.get('mode');
+    const textValue = searchParams.get('text');
+    const topicValue = searchParams.get('topic');
+    const urlValue = searchParams.get('url');
+    if (mode === 'topic') setInputMode('from-topic');
+    if (mode === 'text') setInputMode('from-text');
+    if (mode === 'youtube') setInputMode('from-youtube');
+    if (mode === 'file') setInputMode('from-file');
+    if (textValue) setText(textValue);
+    if (topicValue) setTopic(topicValue);
+    if (urlValue) setYoutubeUrl(urlValue);
+  }, [searchParams]);
 
   useEffect(() => {
     let active = true;
@@ -266,6 +290,20 @@ export default function NotesPage() {
     }
   };
 
+  const handleExportMarkdown = () => {
+    const notes = generatedContent?.notes;
+    if (!notes) return;
+    const blob = new Blob([notes], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'scripto-notes.md';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const handleSaveNote = async () => {
     const notes = generatedContent?.notes;
     if (!notes || isSavingNote || !isLoaded) return;
@@ -280,27 +318,8 @@ export default function NotesPage() {
       markdown: notes,
     });
     if (!isSignedIn) {
-      try {
-        const savedNote = saveLocalNote({
-          title: resolvedTitle,
-          content: notes,
-          sourceType: getNoteSourceType(inputMode),
-        });
-        setSavedNotes(current => [savedNote, ...current]);
-        setIsSavedNotesOpen(true);
-        toast({
-          title: 'Saved on This Device',
-          description: 'Sign in to sync this note across your devices.',
-        });
-      } catch (error) {
-        console.error('Could not save note on this device.', error);
-        toast({
-          variant: 'destructive',
-          title: 'Save Failed',
-          description: 'Could not save this note on your device.',
-        });
-      }
-      setShowSignInPrompt(true);
+      setGuestModalAction('save-note');
+      setGuestModalOpen(true);
       return;
     }
 
@@ -419,6 +438,11 @@ export default function NotesPage() {
 
   const handleGenerate = async () => {
     if (generationInProgressRef.current) return;
+    if (!isSignedIn && isGuestMode() && consumeGuestGeneration() === 'limited') {
+      setGuestModalAction('generation');
+      setGuestModalOpen(true);
+      return;
+    }
 
     generationInProgressRef.current = true;
     setIsLoading(true);
@@ -433,7 +457,8 @@ export default function NotesPage() {
             setIsLoading(false);
             return;
         }
-        const topicResult = unwrapAIActionResult(await generateFromTopic({ topic }));
+        const noteFormat = readStudyPreferences().noteFormat;
+        const topicResult = unwrapAIActionResult(await generateFromTopic({ topic, noteFormat }));
         result = {
           notes: topicResult.notes,
           quiz: topicResult.quiz,
@@ -442,7 +467,9 @@ export default function NotesPage() {
           sourceTopic: topic,
         };
       } else {
-        let notesInput: GenerateNotesInput = {};
+        let notesInput: GenerateNotesInput = {
+          format: readStudyPreferences().noteFormat,
+        };
         let sourceFileName: string | undefined;
         if (inputMode === 'from-text') {
             if (!text.trim()) {
@@ -503,27 +530,14 @@ export default function NotesPage() {
 
   const renderContent = () => {
     if (isLoading) {
-      return (
-        <div role="status" aria-live="polite" className="p-6 space-y-4">
-          <p className="text-sm text-muted-foreground">
-            {inputMode === 'from-topic'
-              ? 'Generating your study materials. Temporary Gemini errors are retried automatically, with a backup model if needed.'
-              : 'Generating your study notes. Temporary Gemini errors are retried automatically, with a backup model if needed.'}
-          </p>
-          <Skeleton className="h-48 w-full" />
-          <Skeleton className="h-8 w-1/3" />
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-4/5" />
-        </div>
-      );
+      return <GenerationSkeleton />;
     }
 
     if (!generatedContent?.notes) {
       return (
         <div className="flex flex-col items-center justify-center h-full text-center p-8">
           <BrainCircuit className="h-16 w-16 text-muted-foreground/50 mb-4" />
-          <h3 className="text-lg font-semibold">Your study notes will appear here</h3>
+          <h3 className="text-lg font-semibold">Nothing to study yet.</h3>
           <p className="text-sm text-muted-foreground">
             Enter some text, a topic, or import a file to get started.
           </p>
@@ -565,7 +579,7 @@ export default function NotesPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start flex-1">
+      <div className="grid grid-cols-1 gap-8 items-start flex-1 lg:grid-cols-[1.15fr_0.85fr]">
         {/* Left panel */}
         <div className="space-y-6">
           <Card>
@@ -604,7 +618,7 @@ export default function NotesPage() {
                     Paste your text below to get started.
                   </CardDescription>
                   <Textarea
-                    placeholder="Paste your notes, an article, or any text you want to study..."
+                    placeholder="Paste the wall of text you're pretending to read..."
                     className="min-h-[250px] text-base"
                     value={text}
                     maxLength={15000}
@@ -617,7 +631,7 @@ export default function NotesPage() {
                         Enter a topic and we'll generate notes for you.
                     </CardDescription>
                     <Input
-                        placeholder="e.g. The history of the Roman Empire"
+                        placeholder="Drop a topic before the syllabus humbles you..."
                         value={topic}
                         maxLength={200}
                         onChange={e => setTopic(e.target.value)}
@@ -629,7 +643,7 @@ export default function NotesPage() {
                         Enter a YouTube URL to generate notes from the video.
                     </CardDescription>
                     <Input
-                        placeholder="https://www.youtube.com/watch?v=..."
+                        placeholder="Paste that 2x-speed lecture link..."
                         value={youtubeUrl}
                         maxLength={2048}
                         onChange={e => setYoutubeUrl(e.target.value)}
@@ -648,7 +662,7 @@ export default function NotesPage() {
                 </TabsContent>
               </CardContent>
               <CardFooter className="flex-col sm:flex-row gap-2">
-                <Button onClick={handleGenerate} disabled={isLoading} className="w-full" size="lg">
+                <Button data-enter-submit="true" onClick={handleGenerate} disabled={isLoading} className="group relative w-full" size="lg">
                   {isLoading ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
@@ -687,7 +701,7 @@ export default function NotesPage() {
                   {isLoadingSavedNotes ? (
                     <p className="text-sm text-muted-foreground">Loading saved notes...</p>
                   ) : savedNotes.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No saved notes yet.</p>
+                    <p className="text-sm text-muted-foreground">No saved notes yet. Main character arc starts with one topic.</p>
                   ) : (
                     savedNotes.map(note => (
                       <div key={note.id} className="flex flex-col gap-3 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -729,7 +743,7 @@ export default function NotesPage() {
         </div>
 
         {/* Right panel */}
-        <Card className="lg:sticky top-24 flex-1 flex flex-col">
+        <Card className="lg:sticky top-24 flex-1 flex flex-col overflow-hidden">
           <CardHeader>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -750,6 +764,10 @@ export default function NotesPage() {
                         <Download className="h-4 w-4" />
                       )}
                       Export PDF
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={handleExportMarkdown}>
+                      <Download className="h-4 w-4" />
+                      Markdown
                     </Button>
                     <Button
                       variant="outline"
@@ -781,7 +799,13 @@ export default function NotesPage() {
                 )}
             </div>
           </CardHeader>
-          <CardContent className="flex-1 overflow-auto">
+          <CardContent
+            className="relative flex-1 overflow-auto p-0"
+            onMouseUp={() => {
+              const selection = window.getSelection()?.toString().trim() ?? '';
+              setSelectedText(selection);
+            }}
+          >
             {isGeneratingImage ? (
               <Skeleton className="w-full h-48 rounded-lg" />
             ) : imageUrl ? (
@@ -795,10 +819,27 @@ export default function NotesPage() {
                  />
               </div>
             ) : null}
-            {renderContent()}
+            {selectedText && generatedContent?.notes && (
+              <div className="frosted-overlay absolute left-1/2 top-3 z-20 flex -translate-x-1/2 gap-1 rounded-lg p-1">
+                <Button size="sm" variant="ghost" onClick={() => setSelectedText('')}>Explain simpler</Button>
+                <Button size="sm" variant="ghost" onClick={() => setSelectedText('')}>Make flashcard</Button>
+                <Button size="sm" variant="ghost" onClick={() => setSelectedText('')}>Quiz this</Button>
+              </div>
+            )}
+            {generatedContent?.notes ? (
+              <div className="grid lg:grid-cols-[minmax(0,1.2fr)_minmax(260px,0.8fr)]">
+                <div className="min-w-0">{renderContent()}</div>
+                <StudyStudio notes={generatedContent.notes} />
+              </div>
+            ) : renderContent()}
           </CardContent>
         </Card>
       </div>
+      <GuestAuthModal
+        open={guestModalOpen}
+        onOpenChange={setGuestModalOpen}
+        action={guestModalAction}
+      />
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { Metadata } from 'next';
+import { Suspense } from 'react';
 import NotesPageClient from './page-client';
 
 export const metadata: Metadata = {
@@ -11,5 +12,9 @@ export const metadata: Metadata = {
 };
 
 export default function NotesPage() {
-  return <NotesPageClient />;
+  return (
+    <Suspense fallback={null}>
+      <NotesPageClient />
+    </Suspense>
+  );
 }

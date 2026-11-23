@@ -1,7 +1,8 @@
 
 'use client';
 
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { BrainCircuit, Loader2, Wand2, FileQuestion, BookOpen, Upload, Download, FileType, Youtube } from 'lucide-react';
 
 import { generateQuiz, type GenerateQuizOutput, type GenerateQuizInput } from '@/ai/flows/generate-quiz';
@@ -23,6 +24,8 @@ import { recordActivityAction } from '@/app/actions/user-data';
 import { recordActivityLocally, type ActivityProgressUpdate, type ActivityInput } from '@/lib/gamification';
 import AIErrorBanner from '@/components/app/ai-error-banner';
 import { getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
+import GenerationSkeleton from '@/components/app/generation-skeleton';
+import { readStudyPreferences } from '@/components/app/settings-dialog';
 
 type InputMode = 'from-text' | 'from-topic' | 'from-youtube' | 'from-file';
 
@@ -43,6 +46,7 @@ interface GeneratedContent {
 
 
 export default function QuizPage() {
+  const searchParams = useSearchParams();
   const [inputMode, setInputMode] = useState<InputMode>('from-text');
   const [text, setText] = useState('');
   const [topic, setTopic] = useState('');
@@ -53,6 +57,17 @@ export default function QuizPage() {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const generationInProgressRef = useRef(false);
+
+  useEffect(() => {
+    const mode = searchParams.get('mode');
+    if (mode === 'topic') setInputMode('from-topic');
+    if (mode === 'text') setInputMode('from-text');
+    if (mode === 'youtube') setInputMode('from-youtube');
+    if (mode === 'file') setInputMode('from-file');
+    if (searchParams.get('text')) setText(searchParams.get('text') ?? '');
+    if (searchParams.get('topic')) setTopic(searchParams.get('topic') ?? '');
+    if (searchParams.get('url')) setYoutubeUrl(searchParams.get('url') ?? '');
+  }, [searchParams]);
 
   const [audioSrc, setAudioSrc] = useState<string | null>(null);
   const [isSynthesizing, setIsSynthesizing] = useState<string | null>(null);
@@ -89,7 +104,12 @@ export default function QuizPage() {
             setIsLoading(false);
             return;
         }
-        const topicResult = unwrapAIActionResult(await generateFromTopic({ topic }));
+        const preferences = readStudyPreferences();
+        const topicResult = unwrapAIActionResult(await generateFromTopic({
+          topic,
+          noteFormat: preferences.noteFormat,
+          quizLength: preferences.quizLength,
+        }));
         if (topicResult.quiz && topicResult.quiz.questions) {
            result = { 
                 notes: topicResult.notes,
@@ -138,7 +158,10 @@ export default function QuizPage() {
                 return;
             }
         }
-        const textResult = unwrapAIActionResult(await generateQuiz(quizInput));
+        const textResult = unwrapAIActionResult(await generateQuiz({
+          ...quizInput,
+          questionCount: readStudyPreferences().quizLength,
+        }));
         result = { quiz: { questions: textResult.questions } }
       }
       setGeneratedContent(result);
@@ -210,22 +233,14 @@ export default function QuizPage() {
 
   const renderContent = () => {
     if (isLoading) {
-      return (
-        <div className="p-6 space-y-4">
-          <Skeleton className="h-48 w-full" />
-          <Skeleton className="h-8 w-1/3" />
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-4/5" />
-        </div>
-      );
+      return <GenerationSkeleton kind="cards" />;
     }
 
     if (!generatedContent || !generatedContent.quiz || !generatedContent.quiz.questions) {
       return (
         <div className="flex flex-col items-center justify-center h-full text-center p-8">
           <BrainCircuit className="h-16 w-16 text-muted-foreground/50 mb-4" />
-          <h3 className="text-lg font-semibold">Your quiz will appear here</h3>
+          <h3 className="text-lg font-semibold">Nothing to quiz yet. Feed me a topic first.</h3>
           <p className="text-sm text-muted-foreground">
             Enter some text, a topic, or import a file to get started.
           </p>
@@ -274,7 +289,7 @@ export default function QuizPage() {
                              <CardTitle className="mb-2 text-xl">Enter Your Study Material</CardTitle>
                              <CardDescription className="mb-4">Paste your text or import a document below to get started.</CardDescription>
                              <Textarea
-                                placeholder="Paste your notes, an article, or any text you want to study..."
+                                placeholder="Paste the wall of text you're pretending to read..."
                                 className="min-h-[250px] text-base"
                                 value={text}
                                 maxLength={15000}
@@ -285,7 +300,7 @@ export default function QuizPage() {
                             <CardTitle className="mb-2 text-xl">Generate From Topic</CardTitle>
                             <CardDescription className="mb-4">Enter a topic and we'll generate the study materials for you.</CardDescription>
                             <Input
-                                placeholder="e.g., 'The basics of photosynthesis'"
+                                placeholder="Drop a topic before the syllabus humbles you..."
                                 className="text-base h-12"
                                 value={topic}
                                 maxLength={200}
@@ -297,7 +312,7 @@ export default function QuizPage() {
                              <CardDescription className="mb-4">Enter a video URL and we'll make a quiz from its transcript.</CardDescription>
                              <Input
                                 type="url"
-                                placeholder="https://www.youtube.com/watch?v=..."
+                                placeholder="Paste that 2x-speed lecture link..."
                                 value={youtubeUrl}
                                 maxLength={2048}
                                 onChange={(e) => setYoutubeUrl(e.target.value)}
@@ -305,7 +320,7 @@ export default function QuizPage() {
                         </TabsContent>
                     </CardContent>
                     <CardFooter className="flex-col sm:flex-row gap-2">
-                        <Button onClick={handleGenerate} disabled={isLoading} className="w-full" size="lg">
+                        <Button data-enter-submit="true" onClick={handleGenerate} disabled={isLoading} className="group relative w-full" size="lg">
                             {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
                             Generate Quiz
                         </Button>

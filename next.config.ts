@@ -1,6 +1,9 @@
 require('dotenv').config({ path: './.env' });
 
 const nextConfig = {
+  devIndicators: {
+    position: 'bottom-right',
+  },
   typescript: {
     ignoreBuildErrors: true,
   },
