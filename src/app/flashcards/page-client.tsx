@@ -20,6 +20,9 @@ import { getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result'
 import GenerationSkeleton from '@/components/app/generation-skeleton';
 import { useAuth } from '@clerk/nextjs';
 import { reserveGuestGeneration } from '@/lib/guest-mode';
+import { getDueFlashcardCount, getDueFlashcards, scheduleFlashcard, readFlashcardReviews, REVIEW_STORAGE_KEY, type FlashcardReview, type ReviewCard } from '@/lib/spaced-repetition';
+import { getFlashcardReviewsAction, syncFlashcardReviewsAction } from '@/app/actions/user-data';
+import { Badge } from '@/components/ui/badge';
 
 type InputMode = 'text' | 'topic' | 'youtube' | 'file';
 
@@ -41,6 +44,8 @@ export default function FlashcardsPage() {
   const [generatedContent, setGeneratedContent] = useState<GeneratedContent | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [dueCount, setDueCount] = useState(0);
+  const [dueCards, setDueCards] = useState<ReviewCard[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const generationInProgressRef = useRef(false);
 
@@ -54,6 +59,59 @@ export default function FlashcardsPage() {
     if (searchParams.get('topic')) setTopic(searchParams.get('topic') ?? '');
     if (searchParams.get('url')) setYoutubeUrl(searchParams.get('url') ?? '');
   }, [searchParams]);
+
+  useEffect(() => {
+    const refreshDue = () => {
+      const reviews = readFlashcardReviews();
+      setDueCount(getDueFlashcardCount(new Date(), reviews));
+      setDueCards(getDueFlashcards(new Date(), reviews));
+    };
+    refreshDue();
+    if (isSignedIn) {
+      void getFlashcardReviewsAction().then(serverReviews => {
+        if (serverReviews.length === 0) return;
+        const local = readFlashcardReviews();
+        const merged = new Map<string, FlashcardReview>();
+        for (const review of local) merged.set(review.key, review);
+        for (const review of serverReviews) {
+          const serverReview = review as FlashcardReview;
+          const existing = merged.get(serverReview.key);
+          if (!existing || new Date(serverReview.updatedAt).getTime() >= new Date(existing.updatedAt).getTime()) {
+            merged.set(serverReview.key, serverReview);
+          }
+        }
+        const result = [...merged.values()];
+        window.localStorage.setItem(REVIEW_STORAGE_KEY, JSON.stringify(result));
+        setDueCount(getDueFlashcardCount(new Date(), result));
+        setDueCards(getDueFlashcards(new Date(), result));
+      });
+    }
+  }, [isSignedIn]);
+
+  const handleReview = async (card: ReviewCard, rating: 'again' | 'good' | 'easy') => {
+    const reviews = scheduleFlashcard(card, rating);
+    setDueCount(getDueFlashcardCount(new Date(), reviews));
+    setDueCards(getDueFlashcards(new Date(), reviews));
+    if (isSignedIn) {
+      await syncFlashcardReviewsAction(reviews);
+    }
+  };
+
+  const handleDrillDue = () => {
+    const cards = getDueFlashcards();
+    if (cards.length > 0) {
+      setGeneratedContent({
+        flashcards: cards.map(card => ({
+          question: card.question,
+          answer: card.answer,
+          emoji: card.emoji ?? '🧠',
+          color: card.color ?? 'blue',
+        })),
+      });
+    } else {
+      setGenerationError('Nothing is due right now. Your next review card will appear here.');
+    }
+  };
 
   const handleGenerate = async () => {
     if (generationInProgressRef.current) return;
@@ -103,6 +161,11 @@ export default function FlashcardsPage() {
                      setIsLoading(false);
                      return;
                  }
+                 if (file.size > 10 * 1024 * 1024) {
+                   setGenerationError('This file is larger than 10 MB. Choose a smaller PDF, DOCX, or text file.');
+                   setIsLoading(false);
+                   return;
+                 }
                  try {
                      const extractedText = await extractTextFromFile(file);
                      if (!extractedText.trim()) {
@@ -112,7 +175,7 @@ export default function FlashcardsPage() {
                      }
                     input.text = extractedText;
                  } catch (err) {
-                    setGenerationError('Could not read the file. Use a supported document no larger than 10 MB.');
+                    setGenerationError(err instanceof Error ? err.message : 'Could not read the file. Use a supported document no larger than 10 MB.');
                     setIsLoading(false);
                     return;
                 }
@@ -146,7 +209,7 @@ export default function FlashcardsPage() {
       );
     }
 
-    return <FlashcardsDisplay flashcards={generatedContent.flashcards} />;
+    return <FlashcardsDisplay flashcards={generatedContent.flashcards} onReview={handleReview} />;
   };
 
   return (
@@ -155,10 +218,18 @@ export default function FlashcardsPage() {
         <div className="p-3 bg-primary/10 rounded-full border border-primary/20">
           <Layers className="h-6 w-6 text-primary" />
         </div>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Generate Flashcards</h1>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-bold tracking-tight">Generate Flashcards</h1>
+            <Badge variant="secondary" className="border border-primary/20 bg-primary/10 text-primary">
+              Due for review: {dueCount}
+            </Badge>
+          </div>
           <p className="text-muted-foreground">Create interactive flashcards to memorize key info.</p>
         </div>
+        <Button variant="outline" onClick={handleDrillDue} disabled={dueCount === 0}>
+          Drill due cards
+        </Button>
       </div>
       <AIErrorBanner message={generationError} />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">

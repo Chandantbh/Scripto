@@ -25,9 +25,10 @@ interface Flashcard {
 
 interface FlashcardsDisplayProps {
   flashcards: Flashcard[];
+  onReview?: (card: Flashcard, rating: 'again' | 'good' | 'easy') => void;
 }
 
-const FlashcardsDisplay: FC<FlashcardsDisplayProps> = ({ flashcards }) => {
+const FlashcardsDisplay: FC<FlashcardsDisplayProps> = ({ flashcards, onReview }) => {
   const { toast } = useToast();
   // State for flipped cards
   const [flippedStates, setFlippedStates] = useState<boolean[]>(
@@ -155,14 +156,22 @@ const FlashcardsDisplay: FC<FlashcardsDisplayProps> = ({ flashcards }) => {
                             </ScrollArea>
                           </CardContent>
                           <div className="border-t border-border p-4">
-                            <Button
-                              variant="ghost"
-                              className="w-full"
-                              onClick={() => handleFlip(index)}
-                            >
-                              <RefreshCw className="mr-2 h-4 w-4" />
-                              Flip to Question
-                            </Button>
+                            {onReview ? (
+                              <div className="grid grid-cols-3 gap-2">
+                                <Button variant="destructive" size="sm" onClick={() => onReview(flashcard, 'again')}>Again</Button>
+                                <Button variant="secondary" size="sm" onClick={() => onReview(flashcard, 'good')}>Good</Button>
+                                <Button size="sm" onClick={() => onReview(flashcard, 'easy')}>Easy</Button>
+                              </div>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                className="w-full"
+                                onClick={() => handleFlip(index)}
+                              >
+                                <RefreshCw className="mr-2 h-4 w-4" />
+                                Flip to Question
+                              </Button>
+                            )}
                           </div>
                         </Card>
                       </div>

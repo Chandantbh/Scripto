@@ -17,6 +17,7 @@ const messages: Record<GuestAction, string> = {
   progress: 'Sign in to sync study progress across devices.',
   badges: 'Sign in to save badge progress across devices.',
   generation: "You've used your 2 guest runs — sign in to keep locking in.",
+  share: 'Sign in to create a clean public link for this study pack.',
 };
 
 export default function GuestAuthModal({

@@ -1,4 +1,4 @@
-export type GuestAction = 'save-note' | 'progress' | 'badges' | 'generation';
+export type GuestAction = 'save-note' | 'progress' | 'badges' | 'generation' | 'share';
 
 export const GUEST_GENERATION_KEY = 'scripto_guest_generations';
 export const GUEST_MODE_KEY = 'scripto_guest';

@@ -32,6 +32,27 @@ const saveNoteSchema = z.object({
 
 const noteIdSchema = z.string().uuid();
 
+const flashcardReviewSchema = z.object({
+  key: z.string().min(1).max(100),
+  card: z.object({
+    question: z.string().trim().min(1).max(2000),
+    answer: z.string().trim().min(1).max(5000),
+    emoji: z.string().optional(),
+    color: z.string().optional(),
+  }),
+  dueAt: z.string().datetime(),
+  intervalMinutes: z.number().int().min(0).max(525600),
+  repetitions: z.number().int().min(0).max(10000),
+  updatedAt: z.string().datetime(),
+});
+
+const studyPackSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  notes: z.string().trim().min(1).max(50000),
+  quiz: z.array(z.unknown()).max(100).optional(),
+  flashcards: z.array(z.unknown()).max(200).optional(),
+});
+
 export interface UserDashboardData {
   progress: UserProgress;
   savedNotes: SavedNote[];
@@ -261,6 +282,138 @@ export async function deleteSavedNoteAction(id: string): Promise<boolean> {
   if (error) reportDatabaseError('deleting a saved note', error);
 
   return true;
+}
+
+export async function syncFlashcardReviewsAction(
+  reviews: Array<z.infer<typeof flashcardReviewSchema>>,
+): Promise<boolean> {
+  const { userId } = await auth();
+  if (!userId) return false;
+
+  const parsed = z.array(flashcardReviewSchema).max(500).safeParse(reviews);
+  if (!parsed.success) throw new Error('Flashcard review data is invalid.');
+
+  const client = requireSupabaseClient();
+  for (const review of parsed.data) {
+    const { error } = await client.from('flashcard_reviews').upsert({
+      user_id: userId,
+      key: review.key,
+      card: review.card,
+      due_at: review.dueAt,
+      interval_minutes: review.intervalMinutes,
+      repetitions: review.repetitions,
+      updated_at: review.updatedAt,
+    }, { onConflict: 'user_id,key' });
+    if (error) reportDatabaseError('syncing flashcard reviews', error);
+  }
+  return true;
+}
+
+export async function getFlashcardReviewsAction(): Promise<Array<z.infer<typeof flashcardReviewSchema>>> {
+  const { userId } = await auth();
+  if (!userId) return [];
+  try {
+    const client = requireSupabaseClient();
+    const { data, error } = await client
+      .from('flashcard_reviews')
+      .select('key, card, due_at, interval_minutes, repetitions, updated_at')
+      .eq('user_id', userId);
+    if (error) {
+      console.warn('Scripto flashcard reviews unavailable.', getDatabaseErrorDetails(error));
+      return [];
+    }
+    return (data ?? []).map(row => ({
+      key: row.key,
+      card: row.card,
+      dueAt: row.due_at,
+      intervalMinutes: row.interval_minutes,
+      repetitions: row.repetitions,
+      updatedAt: row.updated_at,
+    }));
+  } catch (error) {
+    console.warn('Scripto flashcard reviews unavailable.', getDatabaseErrorDetails(error));
+    return [];
+  }
+}
+
+export interface PublicStudyPack {
+  slug: string;
+  title: string;
+  notes: string;
+  quiz: unknown[];
+  flashcards: unknown[];
+  createdAt: string;
+}
+
+export async function createStudyPackAction(
+  input: z.infer<typeof studyPackSchema>,
+): Promise<PublicStudyPack | null> {
+  const { userId } = await auth();
+  if (!userId) return null;
+
+  const parsed = studyPackSchema.safeParse(input);
+  if (!parsed.success) throw new Error('Study pack details are invalid.');
+
+  const client = requireSupabaseClient();
+  const slug = [
+    parsed.data.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 48) || 'study-pack',
+    crypto.randomUUID().slice(0, 8),
+  ].join('-');
+
+  const { data, error } = await client
+    .from('study_packs')
+    .insert({
+      slug,
+      user_id: userId,
+      title: parsed.data.title,
+      notes: parsed.data.notes,
+      quiz: parsed.data.quiz ?? [],
+      flashcards: parsed.data.flashcards ?? [],
+    })
+    .select('slug, title, notes, quiz, flashcards, created_at')
+    .single();
+  if (error) reportDatabaseError('creating a study pack', error);
+
+  return {
+    slug: data.slug,
+    title: data.title,
+    notes: data.notes,
+    quiz: Array.isArray(data.quiz) ? data.quiz : [],
+    flashcards: Array.isArray(data.flashcards) ? data.flashcards : [],
+    createdAt: data.created_at,
+  };
+}
+
+export async function getPublicStudyPackAction(slug: string): Promise<PublicStudyPack | null> {
+  if (!/^[a-z0-9-]{1,80}$/i.test(slug)) return null;
+  try {
+    const client = requireSupabaseClient();
+    const { data, error } = await client
+      .from('study_packs')
+      .select('slug, title, notes, quiz, flashcards, created_at')
+      .eq('slug', slug)
+      .maybeSingle();
+    if (error) {
+      console.warn('Scripto study pack unavailable.', getDatabaseErrorDetails(error));
+      return null;
+    }
+    if (!data) return null;
+    return {
+      slug: data.slug,
+      title: data.title,
+      notes: data.notes,
+      quiz: Array.isArray(data.quiz) ? data.quiz : [],
+      flashcards: Array.isArray(data.flashcards) ? data.flashcards : [],
+      createdAt: data.created_at,
+    };
+  } catch (error) {
+    console.warn('Scripto study pack unavailable.', getDatabaseErrorDetails(error));
+    return null;
+  }
 }
 
 async function loadUserProgress(

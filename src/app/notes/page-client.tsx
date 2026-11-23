@@ -162,6 +162,7 @@ export default function NotesPage() {
   const [savedNotesError, setSavedNotesError] = useState<string | null>(null);
   const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [mobileView, setMobileView] = useState<'notes' | 'studio'>('notes');
   const { toast } = useToast();
   const { isLoaded, isSignedIn } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -513,6 +514,11 @@ export default function NotesPage() {
                  setIsLoading(false);
                  return;
              }
+             if (file.size > 10 * 1024 * 1024) {
+               setGenerationError('This file is larger than 10 MB. Choose a smaller PDF, DOCX, or text file.');
+               setIsLoading(false);
+               return;
+             }
              try {
                  const extractedText = await extractTextFromFile(file);
                  if (!extractedText.trim()) {
@@ -600,9 +606,26 @@ export default function NotesPage() {
         </div>
       )}
 
+      <div className="mb-4 grid grid-cols-2 rounded-lg bg-muted p-1 lg:hidden">
+        <Button
+          variant={mobileView === 'notes' ? 'default' : 'ghost'}
+          size="sm"
+          onClick={() => setMobileView('notes')}
+        >
+          Notes
+        </Button>
+        <Button
+          variant={mobileView === 'studio' ? 'default' : 'ghost'}
+          size="sm"
+          onClick={() => setMobileView('studio')}
+        >
+          Study Studio
+        </Button>
+      </div>
+
       <div className="grid grid-cols-1 gap-8 items-start flex-1 lg:grid-cols-[1.15fr_0.85fr]">
         {/* Left panel */}
-        <div className="space-y-6">
+        <div className={`space-y-6 ${mobileView === 'notes' ? 'block' : 'hidden'} lg:block`}>
           <Card>
             <Tabs
               value={inputMode}
@@ -764,7 +787,7 @@ export default function NotesPage() {
         </div>
 
         {/* Right panel */}
-        <Card className="lg:sticky top-24 flex-1 flex flex-col overflow-hidden">
+        <Card className={`${mobileView === 'studio' ? 'flex' : 'hidden'} lg:sticky top-24 lg:flex flex-1 flex-col overflow-hidden`}>
           <CardHeader>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -858,6 +881,7 @@ export default function NotesPage() {
                   notes={generatedContent.notes}
                   selectedText={selectedText}
                   selectedAction={selectedAction}
+                  title={generatedContent.sourceTopic || generatedContent.sourceFileName || 'Study Pack'}
                 />
               </div>
             ) : renderContent()}

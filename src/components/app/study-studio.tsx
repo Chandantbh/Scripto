@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { BrainCircuit, HelpCircle, Layers, Network, Send } from 'lucide-react';
+import { BrainCircuit, HelpCircle, Layers, Network, Send, Share2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
@@ -11,6 +11,9 @@ import { unwrapAIActionResult } from '@/lib/ai-action-result';
 import { reserveGuestGeneration } from '@/lib/guest-mode';
 import { useAuth } from '@clerk/nextjs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import GuestAuthModal from '@/components/app/guest-auth-modal';
+import { createStudyPackAction } from '@/app/actions/user-data';
+import { useToast } from '@/hooks/use-toast';
 
 type StudioTab = 'quiz' | 'cards' | 'map' | 'ask';
 
@@ -20,12 +23,15 @@ export default function StudyStudio({
   notes,
   selectedText = '',
   selectedAction,
+  title = 'Study Pack',
 }: {
   notes: string;
   selectedText?: string;
   selectedAction?: StudyAction;
+  title?: string;
 }) {
   const { isSignedIn } = useAuth();
+  const { toast } = useToast();
   const [tab, setTab] = useState<StudioTab>('quiz');
   const [mastery, setMastery] = useState(18);
   const [questionText, setQuestionText] = useState('');
@@ -33,6 +39,8 @@ export default function StudyStudio({
   const [items, setItems] = useState<{ question: string; answer?: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const lastActionRef = useRef('');
+  const [shareOpen, setShareOpen] = useState(false);
+  const [sharing, setSharing] = useState(false);
 
   useEffect(() => {
     setMastery(notes ? Math.min(100, 18 + Math.round(notes.length / 180)) : 0);
@@ -88,12 +96,54 @@ export default function StudyStudio({
     setMastery(value => Math.min(100, value + 4));
   };
 
+  const handleShare = async () => {
+    if (!isSignedIn) {
+      setShareOpen(true);
+      return;
+    }
+    if (sharing) return;
+    setSharing(true);
+    try {
+      const pack = await createStudyPackAction({
+        title,
+        notes,
+        quiz: tab === 'quiz' ? items : [],
+        flashcards: tab === 'cards' ? items : [],
+      });
+      if (!pack) {
+        setShareOpen(true);
+        return;
+      }
+      const url = `${window.location.origin}/s/${pack.slug}`;
+      await navigator.clipboard.writeText(url);
+      toast({
+        title: 'Share link ready',
+        description: 'The public study pack link was copied to your clipboard.',
+      });
+    } catch (error) {
+      console.error('Could not create study pack.', error);
+      toast({
+        variant: 'destructive',
+        title: 'Could not share',
+        description: 'Please try creating the public study pack again.',
+      });
+    } finally {
+      setSharing(false);
+    }
+  };
+
   return (
     <aside className="flex min-h-[560px] flex-col border-l border-border bg-card">
       <div className="border-b border-border px-4 py-4">
         <div className="mb-2 flex items-center justify-between text-sm">
           <span className="font-semibold">Topic mastery</span>
-          <span className="text-muted-foreground">{mastery}%</span>
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">{mastery}%</span>
+            <Button variant="outline" size="sm" onClick={() => void handleShare()} disabled={sharing}>
+              {sharing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Share2 className="mr-2 h-4 w-4" />}
+              Share
+            </Button>
+          </div>
         </div>
         <Progress value={mastery} className="h-1.5" />
       </div>
@@ -204,6 +254,7 @@ export default function StudyStudio({
           </div>
         )}
       </div>
+      <GuestAuthModal open={shareOpen} onOpenChange={setShareOpen} action="share" />
     </aside>
   );
 }

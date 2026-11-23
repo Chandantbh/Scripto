@@ -15,6 +15,9 @@ import {
 } from 'lucide-react';
 import type { UserDashboardData } from '@/app/actions/user-data';
 import { getGuestDisplayName } from '@/lib/guest-mode';
+import { getDueFlashcardCount } from '@/lib/spaced-repetition';
+import { Badge } from '@/components/ui/badge';
+import { getFlashcardReviewsAction } from '@/app/actions/user-data';
 
 const tools = [
   {
@@ -78,10 +81,20 @@ export default function HomeClient({
   dashboard: UserDashboardData | null;
 }) {
   const [guestName, setGuestName] = useState('Guest');
+  const [dueCount, setDueCount] = useState(0);
 
   useEffect(() => {
     if (!isSignedIn && isGuest) setGuestName(getGuestDisplayName());
   }, [isSignedIn, isGuest]);
+
+  useEffect(() => {
+    setDueCount(getDueFlashcardCount());
+    if (isSignedIn) {
+      void getFlashcardReviewsAction().then(reviews => {
+        if (reviews.length) setDueCount(reviews.filter(review => new Date(review.dueAt).getTime() <= Date.now()).length);
+      });
+    }
+  }, [isSignedIn]);
 
   const greeting = isSignedIn
     ? `Back for another academic comeback, ${firstName ?? 'Scholar'}.`
@@ -120,7 +133,14 @@ export default function HomeClient({
               <span className="grid h-10 w-10 place-items-center rounded-lg border border-border bg-[#EFF6FF] text-[#2563EB] dark:border-[#1F2229] dark:bg-[rgba(59,130,246,0.14)] dark:text-[#60A5FA]">
                 <tool.icon className="h-5 w-5" />
               </span>
-              <ArrowRight className="h-5 w-5 text-muted-foreground transition-transform duration-200 ease-out group-hover:translate-x-1 motion-reduce:transform-none motion-reduce:transition-none" />
+              <div className="flex items-center gap-2">
+                {tool.title === 'Flashcards' && dueCount > 0 ? (
+                  <Badge variant="secondary" className="border border-primary/20 bg-primary/10 text-primary">
+                    Due for review: {dueCount}
+                  </Badge>
+                ) : null}
+                <ArrowRight className="h-5 w-5 text-muted-foreground transition-transform duration-200 ease-out group-hover:translate-x-1 motion-reduce:transform-none motion-reduce:transition-none" />
+              </div>
             </div>
             <div>
               <h2 className="text-lg font-semibold">{tool.title}</h2>
