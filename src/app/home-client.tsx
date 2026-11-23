@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import {
   ArrowRight,
   Award,
@@ -13,6 +14,7 @@ import {
   Timer,
 } from 'lucide-react';
 import type { UserDashboardData } from '@/app/actions/user-data';
+import { getGuestDisplayName } from '@/lib/guest-mode';
 
 const tools = [
   {
@@ -66,6 +68,8 @@ const tools = [
 ];
 
 export default function HomeClient({
+  isSignedIn,
+  isGuest,
   firstName,
 }: {
   isSignedIn: boolean;
@@ -73,30 +77,37 @@ export default function HomeClient({
   firstName: string | null;
   dashboard: UserDashboardData | null;
 }) {
-  const hour = new Date().getHours();
-  const greeting =
-    hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  const [guestName, setGuestName] = useState('Guest');
+
+  useEffect(() => {
+    if (!isSignedIn && isGuest) setGuestName(getGuestDisplayName());
+  }, [isSignedIn, isGuest]);
+
+  const greeting = isSignedIn
+    ? `Back for another academic comeback, ${firstName ?? 'Scholar'}.`
+    : `Operating incognito, ${guestName}.`;
 
   return (
     <main className="mx-auto max-w-6xl px-6 pb-16 pt-8 md:px-10">
       <div className="mb-10 flex items-start justify-between">
         <div>
-          <p className="text-sm font-medium text-muted-foreground">
-            {greeting}
-            {firstName ? `, ${firstName}` : ''}
-          </p>
+          <p className="text-sm font-medium text-muted-foreground sm:text-base">{greeting}</p>
         </div>
-        <Link
-          href="/"
-          className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-card px-3 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
-        >
-          Get Started
-        </Link>
+        {!isSignedIn && isGuest ? (
+          <Link href="/sign-in">
+            <span className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-card px-3 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground">
+              Sign in
+            </span>
+          </Link>
+        ) : null}
       </div>
 
-      <h1 className="mb-8 max-w-3xl font-heading text-3xl font-semibold tracking-tight md:text-4xl">
-        What would you like to study today?
-      </h1>
+      <div className="mb-8">
+        <h1 className="max-w-3xl font-heading text-3xl font-bold tracking-tight sm:text-4xl">
+          How are we surviving this syllabus today?
+        </h1>
+        <p className="mt-1.5 text-base text-muted-foreground">Pick your weapon below.</p>
+      </div>
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-label="Study tools">
         {tools.map(tool => (

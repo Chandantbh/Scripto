@@ -49,13 +49,8 @@ export default function GetStartedClient({
           Scripto
         </Link>
         <div className="flex items-center gap-2">
-          {hasAccess ? (
-            <Link href="/workspace"><Button size="sm">Open workspace →</Button></Link>
-          ) : (
-            <>
-              <Link href="/sign-in"><Button variant="ghost" size="sm">Sign in</Button></Link>
-              <Link href="/sign-up"><Button size="sm">Lock in →</Button></Link>
-            </>
+          {!isSignedIn && (
+            <Link href="/sign-in"><Button variant="ghost" size="sm">Sign in</Button></Link>
           )}
         </div>
       </header>
@@ -76,7 +71,7 @@ export default function GetStartedClient({
                 <Link href="/workspace"><Button size="lg" className="h-12 px-5">Open workspace →</Button></Link>
               ) : (
                 <>
-                  <Link href="/sign-up"><Button size="lg" className="h-12 px-5">Lock in →</Button></Link>
+                  <Link href="/sign-up"><Button size="lg" className="h-12 px-5">Get started →</Button></Link>
                   <Button variant="ghost" size="lg" className="h-12 px-4" onClick={continueAsGuest}>Continue as guest</Button>
                 </>
               )}

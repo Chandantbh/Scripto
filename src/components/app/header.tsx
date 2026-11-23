@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils';
 import SettingsDialog from './settings-dialog';
 import { AvatarGraphic } from './avatars';
 import { useEffect } from 'react';
+import { getGuestDisplayName } from '@/lib/guest-mode';
 
 const groups = [
   {
@@ -71,10 +72,13 @@ export default function AppHeader({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [avatarId, setAvatarId] = useState('account');
   const [isGuest, setIsGuest] = useState(false);
+  const [guestName, setGuestName] = useState('Guest');
 
   useEffect(() => {
     setAvatarId(window.localStorage.getItem('scripto-avatar') ?? 'account');
-    setIsGuest(window.localStorage.getItem('scripto_guest') === '1');
+    const guestMode = window.localStorage.getItem('scripto_guest') === '1';
+    setIsGuest(guestMode);
+    if (guestMode) setGuestName(getGuestDisplayName());
   }, [settingsOpen]);
 
   if (!isLoaded || (!isSignedIn && !isGuest)) return null;
@@ -162,10 +166,14 @@ export default function AppHeader({
             <AvatarGraphic
               id={avatarId}
               imageUrl={user?.imageUrl}
-              name={user?.fullName ?? user?.firstName ?? 'Account'}
+              name={isSignedIn ? (user?.fullName ?? user?.firstName ?? 'Account') : guestName}
               className="h-9 w-9"
             />
-            {!collapsed && <span className="max-w-24 truncate text-sm font-medium">{user?.firstName ?? 'Account'}</span>}
+            {!collapsed && (
+              <span className="max-w-24 truncate text-sm font-medium">
+                {isSignedIn ? (user?.firstName ?? 'Account') : guestName}
+              </span>
+            )}
           </div>
           <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} compact={collapsed} />
         </div>
@@ -188,7 +196,7 @@ export default function AppHeader({
             {nav}
             {isGuest && (
               <div className="mt-5 flex items-center justify-between border-t border-border pt-3">
-                <Link href="/welcome" className="text-sm text-muted-foreground hover:text-foreground">Welcome</Link>
+                <span className="text-sm font-medium text-muted-foreground">{guestName}</span>
                 <Link href="/sign-in"><Button size="sm">Sign in</Button></Link>
               </div>
             )}

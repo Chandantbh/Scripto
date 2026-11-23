@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { Settings } from 'lucide-react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -19,8 +21,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useTheme } from './theme-provider';
-import { useUser } from '@clerk/nextjs';
+import { useClerk, useUser } from '@clerk/nextjs';
 import { AVATAR_OPTIONS, AvatarGraphic } from './avatars';
+import { GUEST_MODE_KEY, getGuestDisplayName } from '@/lib/guest-mode';
 
 export type StudyPreferences = {
   theme: 'light' | 'dark';
@@ -74,8 +77,11 @@ export default function SettingsDialog({
   compact?: boolean;
 }) {
   const { theme, setTheme } = useTheme();
-  const { user } = useUser();
+  const router = useRouter();
+  const { signOut } = useClerk();
+  const { isLoaded, isSignedIn, user } = useUser();
   const [avatar, setAvatar] = useState('account');
+  const [guestName, setGuestName] = useState('Guest');
   const [preferences, setPreferences] = useState<StudyPreferences>({
     ...DEFAULT_PREFERENCES,
     theme,
@@ -85,8 +91,16 @@ export default function SettingsDialog({
     if (open) {
       setPreferences({ ...readStudyPreferences(), theme });
       setAvatar(window.localStorage.getItem('scripto-avatar') ?? 'account');
+      if (!isSignedIn) setGuestName(getGuestDisplayName());
     }
-  }, [open, theme]);
+  }, [open, theme, isSignedIn]);
+
+  const exitGuestMode = () => {
+    window.localStorage.removeItem(GUEST_MODE_KEY);
+    document.cookie = 'scripto_guest=; path=/; max-age=0; samesite=lax';
+    onOpenChange(false);
+    router.push('/');
+  };
 
   const updatePreference = <K extends keyof StudyPreferences>(
     key: K,
@@ -186,6 +200,49 @@ export default function SettingsDialog({
               ))}
             </div>
           </section>
+
+          {isLoaded && (
+            <section className="border-t border-border pt-6">
+              <h3 className="mb-3 text-sm font-semibold">Account</h3>
+              {isSignedIn ? (
+                <div className="space-y-4">
+                  <div className="text-sm">
+                    {user?.fullName && <p className="font-medium">{user.fullName}</p>}
+                    {user?.primaryEmailAddress?.emailAddress && (
+                      <p className={user?.fullName ? 'mt-1 text-muted-foreground' : 'font-medium'}>
+                        {user.primaryEmailAddress.emailAddress}
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full border-red-500/30 text-red-500 hover:bg-red-500/10"
+                    onClick={() => signOut({ redirectUrl: '/' })}
+                  >
+                    Log out
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm font-medium">{guestName}</p>
+                  <div className="flex flex-col gap-2">
+                    <Link href="/sign-in" onClick={() => onOpenChange(false)}>
+                      <Button type="button" className="w-full">Sign in</Button>
+                    </Link>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="w-full text-xs text-muted-foreground"
+                      onClick={exitGuestMode}
+                    >
+                      Exit guest mode
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
 
         </div>
       </DialogContent>
