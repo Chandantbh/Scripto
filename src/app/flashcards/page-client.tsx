@@ -51,6 +51,9 @@ export default function FlashcardsPage() {
   const [dueCount, setDueCount] = useState(0);
   const [dueCards, setDueCards] = useState<ReviewCard[]>([]);
   const [composerOpen, setComposerOpen] = useState(true);
+  const [isDrilling, setIsDrilling] = useState(false);
+  const [currentCards, setCurrentCards] = useState<GenerateFlashcardsOutput['flashcards']>([]);
+  const [viewerKey, setViewerKey] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const generationInProgressRef = useRef(false);
 
@@ -121,18 +124,30 @@ export default function FlashcardsPage() {
       .filter(review => new Date(review.nextReviewAt ?? review.dueAt).getTime() <= now)
       .map(review => review.card);
     if (cards.length > 0) {
-      setGeneratedContent({
-        flashcards: cards.map(card => ({
-          question: card.question,
-          answer: card.answer,
-          emoji: card.emoji ?? '🧠',
-          color: card.color ?? 'blue',
-        })),
-      });
+      const drillingCards = cards.map(card => ({
+        question: card.question,
+        answer: card.answer,
+        emoji: card.emoji ?? '🧠',
+        color: card.color ?? 'blue',
+      }));
+      setCurrentCards(drillingCards);
+      setGeneratedContent({ flashcards: drillingCards, sourceTopic: 'Due-card review' });
+      setViewerKey(key => key + 1);
+      setIsDrilling(true);
       setComposerOpen(false);
+      requestAnimationFrame(() => {
+        document.getElementById('generated-flashcards')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
     } else {
       setGenerationError('Nothing is due right now. Your next review card will appear here.');
     }
+  };
+
+  const handleBackToGenerator = () => {
+    setIsDrilling(false);
+    setComposerOpen(true);
+    setGeneratedContent(null);
+    setCurrentCards([]);
   };
 
   const handleExportAnki = () => {
@@ -272,11 +287,17 @@ export default function FlashcardsPage() {
       window.localStorage.setItem(REVIEW_STORAGE_KEY, JSON.stringify(initialized));
       setDueCount(getDueFlashcardCount(new Date(), initialized));
       setDueCards(getDueFlashcards(new Date(), initialized));
-      if (isSignedIn) {
-        await syncFlashcardReviewsAction(initialized);
-      }
+      setIsDrilling(false);
+      setCurrentCards(result.flashcards);
+      setViewerKey(key => key + 1);
       setGeneratedContent(result);
       setComposerOpen(false);
+      if (isSignedIn) {
+        void syncFlashcardReviewsAction(initialized);
+      }
+      requestAnimationFrame(() => {
+        document.getElementById('generated-flashcards')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
     } catch (error) {
       const friendly = classifyAIError(error);
       setGenerationError(friendly.message);
@@ -292,7 +313,7 @@ export default function FlashcardsPage() {
       return <GenerationSkeleton kind="cards" />;
     }
 
-    if (!generatedContent || !generatedContent.flashcards || generatedContent.flashcards.length === 0) {
+    if (!currentCards || currentCards.length === 0) {
       return (
         <div className="flex flex-col items-center justify-center h-full text-center p-8">
           <BrainCircuit className="h-16 w-16 text-muted-foreground/50 mb-4" />
@@ -304,7 +325,13 @@ export default function FlashcardsPage() {
       );
     }
 
-    return <FlashcardsDisplay flashcards={generatedContent.flashcards} onReview={handleReview} />;
+    return (
+      <FlashcardsDisplay
+        key={viewerKey}
+        flashcards={currentCards}
+        onReview={isDrilling ? handleReview : undefined}
+      />
+    );
   };
 
   return (
@@ -354,11 +381,19 @@ export default function FlashcardsPage() {
         <div className="mb-5 flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">{generatedContent.sourceTopic || 'Flashcard review'}</p>
-            <p className="text-xs text-muted-foreground">Active flashcard practice</p>
+            <p className="text-xs text-muted-foreground">
+              {isDrilling ? 'Due-card drill' : 'Active flashcard practice'}
+            </p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => setComposerOpen(true)}>
-            + New topic / Edit input
-          </Button>
+          {isDrilling ? (
+            <Button variant="outline" size="sm" onClick={handleBackToGenerator}>
+              Back to Generator
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" onClick={() => setComposerOpen(true)}>
+              + New topic / Edit input
+            </Button>
+          )}
         </div>
       )}
       <div className={generatedContent
@@ -432,7 +467,7 @@ export default function FlashcardsPage() {
             </Card>
           </div>
 
-          <Card className={`${generatedContent && !composerOpen ? '' : 'mt-6'} min-h-[400px] lg:min-h-[600px] flex flex-col`}>
+          <Card id="generated-flashcards" className={`${generatedContent && !composerOpen ? '' : 'mt-6'} min-h-[400px] lg:min-h-[600px] flex flex-col scroll-mt-24`}>
             <CardHeader>
               <CardTitle>Generated Flashcards</CardTitle>
               <CardDescription>Review your key concepts.</CardDescription>

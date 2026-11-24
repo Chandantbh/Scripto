@@ -54,7 +54,9 @@ const FlashcardsDisplay: FC<FlashcardsDisplayProps> = ({ flashcards, onReview })
 
   useEffect(() => {
     setFlippedStates(Array(flashcards.length).fill(false));
-  }, [flashcards]);
+    setCurrentIndex(0);
+    api?.scrollTo(0);
+  }, [flashcards, api]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
