@@ -11,19 +11,19 @@ import ReactFlow, {
   useEdgesState,
   useNodesState,
   useReactFlow,
+  getNodesBounds,
   type Connection,
   type Edge,
   type Node,
   type NodeProps,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { ChevronDown, Expand, Maximize2, Minimize2, RotateCcw, Wand2, ZoomIn, ZoomOut } from 'lucide-react';
+import { ChevronDown, Expand, Loader2, Maximize2, Minimize2, RotateCcw, Wand2, ZoomIn, ZoomOut } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 
 import { generateConceptMap, type ConceptMapOutput } from '@/ai/flows/generate-concept-map';
 import AIErrorBanner from '@/components/app/ai-error-banner';
-import GenerationSkeleton from '@/components/app/generation-skeleton';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -31,6 +31,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
+import { Skeleton } from '@/components/ui/skeleton';
 import { classifyAIError, unwrapAIActionResult } from '@/lib/ai-action-result';
 import { reserveGuestGeneration } from '@/lib/guest-mode';
 import { useAuth } from '@clerk/nextjs';
@@ -65,7 +66,7 @@ function ConceptMapStudio() {
   const generationInProgressRef = useRef(false);
   const canvasRef = useRef<HTMLDivElement>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
-  const { fitView, zoomIn, zoomOut } = useReactFlow();
+  const { fitView, zoomIn, zoomOut, setViewport } = useReactFlow();
 
   const hasMap = nodes.length > 0;
   const selectedNode = nodes.find(node => node.id === selectedId);
@@ -84,6 +85,34 @@ function ConceptMapStudio() {
     document.addEventListener('fullscreenchange', onFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
   }, []);
+
+  useEffect(() => {
+    const element = canvasRef.current;
+    if (!element || nodes.length === 0) return;
+
+    const autoFit = () => {
+      const bounds = getNodesBounds(nodes);
+      const width = element.clientWidth;
+      const height = element.clientHeight;
+      if (width <= 0 || height <= 0 || bounds.width <= 0 || bounds.height <= 0) return;
+
+      const zoom = Math.min(
+        1.5,
+        Math.max(0.2, Math.min((width - 96) / bounds.width, (height - 96) / bounds.height)),
+      );
+      const x = (width - bounds.width * zoom) / 2 - bounds.x * zoom;
+      const y = (height - bounds.height * zoom) / 2 - bounds.y * zoom;
+      setViewport({ x, y, zoom }, { duration: 400 });
+    };
+
+    const frame = window.requestAnimationFrame(autoFit);
+    const observer = new ResizeObserver(autoFit);
+    observer.observe(element);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [nodes, setViewport]);
 
   const onConnect = useCallback((params: Connection) => {
     setEdges(current => addEdge(params, current));
@@ -133,6 +162,8 @@ function ConceptMapStudio() {
         id: concept.id,
         data: { label: concept.label, description: concept.description },
         position: { x: 120 + level * 330, y: 100 + peerIndex * 190 - ((peers.length - 1) * 95) },
+        width: 220,
+        height: 100,
         type: 'monochromeConcept',
       } satisfies Node<{ label: string; description?: string }>;
     });
@@ -180,7 +211,7 @@ function ConceptMapStudio() {
       setDrawerOpen(false);
       requestAnimationFrame(() => {
         workspaceRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        window.setTimeout(() => fitView({ padding: 0.18, duration: 500 }), 120);
+        window.setTimeout(() => fitView({ padding: 48, duration: 500 }), 120);
       });
       toast({ title: 'Concept Map Generated', description: `Created map for: ${topic}` });
     } catch (error) {
@@ -287,7 +318,7 @@ function ConceptMapStudio() {
       <AIErrorBanner message={generationError} onRetry={generationError ? handleGenerate : undefined}
         showSignIn={generationError?.toLowerCase().includes('sign in') ?? false} />
 
-      {!hasMap && (
+      {!hasMap && !isLoading && (
         <Card className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-5">
           <div className="space-y-2">
             <Label>Topic</Label>
@@ -306,7 +337,7 @@ function ConceptMapStudio() {
       )}
 
       {hasMap && (
-        <Card ref={canvasRef} className="relative min-h-[78vh] w-full flex-1 overflow-hidden border-2 border-muted">
+        <Card ref={canvasRef} className="relative h-[72vh] min-h-[560px] w-full overflow-hidden border-2 border-muted">
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -316,7 +347,7 @@ function ConceptMapStudio() {
             onNodeClick={handleNodeClick}
             nodeTypes={nodeTypes}
             fitView
-            fitViewOptions={{ padding: 0.18 }}
+            fitViewOptions={{ padding: 48 }}
             minZoom={0.2}
             maxZoom={2}
           >
@@ -326,7 +357,7 @@ function ConceptMapStudio() {
           <div className="absolute bottom-4 left-4 z-20 flex items-center gap-1 rounded-lg border bg-background/90 p-1 shadow-lg backdrop-blur">
             <Button variant="ghost" size="icon" aria-label="Zoom in" onClick={() => zoomIn({ duration: 200 })}><ZoomIn className="h-4 w-4" /></Button>
             <Button variant="ghost" size="icon" aria-label="Zoom out" onClick={() => zoomOut({ duration: 200 })}><ZoomOut className="h-4 w-4" /></Button>
-            <Button variant="ghost" size="icon" aria-label="Fit to view" onClick={() => fitView({ padding: 0.18, duration: 300 })}><RotateCcw className="h-4 w-4" /></Button>
+            <Button variant="ghost" size="icon" aria-label="Fit to view" onClick={() => fitView({ padding: 48, duration: 300 })}><RotateCcw className="h-4 w-4" /></Button>
             <Button variant="ghost" size="icon" aria-label="Fullscreen canvas" onClick={toggleCanvasFullscreen}><Expand className="h-4 w-4" /></Button>
           </div>
 
@@ -351,9 +382,15 @@ function ConceptMapStudio() {
       )}
 
       {isLoading && !hasMap && (
-        <div className="fixed inset-x-0 bottom-0 top-16 z-40 bg-background/80">
-          <GenerationSkeleton kind="map" />
-        </div>
+        <Card className="mx-auto w-full max-w-3xl p-8 text-center" role="status" aria-live="polite">
+          <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
+          <p className="mt-4 text-sm font-semibold">Building your concept map...</p>
+          <div className="mt-6 grid grid-cols-3 gap-3">
+            <Skeleton className="h-16 w-full rounded-xl" />
+            <Skeleton className="h-16 w-full rounded-xl" />
+            <Skeleton className="h-16 w-full rounded-xl" />
+          </div>
+        </Card>
       )}
 
       <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
