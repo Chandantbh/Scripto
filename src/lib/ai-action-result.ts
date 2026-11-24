@@ -42,6 +42,9 @@ export function classifyAIError(error: unknown): FriendlyAIError {
     if (raw.includes('caption') || raw.includes('transcript') || raw.includes('private video')) {
       return { message: "Couldn't grab captions from this video—try pasting the transcript or uploading notes instead.", kind: 'youtube', status: error.status, code: error.code };
     }
+    if (error.status === 503 && error.message.trim()) {
+      return { message: error.message, kind: 'generic', status: error.status, code: error.code };
+    }
   }
 
   const raw = error instanceof Error ? error.message : String(error ?? '');

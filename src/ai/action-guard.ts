@@ -21,7 +21,8 @@ export async function executeAIAction<ParsedInput, Output, SchemaInput = ParsedI
   operation: string,
   input: unknown,
   schema: ZodType<ParsedInput, ZodTypeDef, SchemaInput>,
-  action: (validatedInput: ParsedInput) => Promise<Output>
+  action: (validatedInput: ParsedInput) => Promise<Output>,
+  exposeActionError = false,
 ): Promise<AIActionResult<Output>> {
   const { userId } = await auth();
   const textLimit = userId ? SIGNED_IN_MAX_TEXT_CHARACTERS : GUEST_MAX_TEXT_CHARACTERS;
@@ -70,6 +71,9 @@ export async function executeAIAction<ParsedInput, Output, SchemaInput = ParsedI
       data: await action(parsedInput.data),
     };
   } catch (error) {
+    if (operation === 'generateConceptMap') {
+      console.error('[CONCEPT_MAP_ERROR]', error);
+    }
     console.error('[AUTH] action_guard_error', {
       event: 'action_guard_error',
       operation,
@@ -83,6 +87,19 @@ export async function executeAIAction<ParsedInput, Output, SchemaInput = ParsedI
     }
 
     console.error(`AI action "${operation}" failed.`, error);
+    if (exposeActionError && error instanceof Error) {
+      const message = error.message.trim();
+      if (message && message.length <= 500 && !message.includes('\n')) {
+        return {
+          ok: false,
+          error: {
+            status: 503,
+            code: 'AI_UNAVAILABLE',
+            message,
+          },
+        };
+      }
+    }
     return {
       ok: false,
       error: {

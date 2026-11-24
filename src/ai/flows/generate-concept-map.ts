@@ -10,9 +10,15 @@ import {PROMPT_SYSTEM_INSTRUCTIONS} from '@/ai/prompt-security';
 
 const ConceptMapInputSchema = z.object({
   topic: z.string().trim().min(1).max(MAX_TOPIC_CHARACTERS),
+  details: z.string().trim().max(5_000).optional(),
   additionalDetails: z.string().trim().max(5_000).optional(),
-}).refine(input => !input.additionalDetails || input.additionalDetails.length > 0, 'Additional details cannot be blank.');
+});
 export type ConceptMapInput = z.infer<typeof ConceptMapInputSchema>;
+
+const NormalizedConceptMapInputSchema = z.object({
+  topic: z.string().trim().min(1).max(MAX_TOPIC_CHARACTERS),
+  additionalDetails: z.string().trim().min(1).max(5_000).optional(),
+});
 
 const ConceptMapNodeSchema = z.object({
   id: z.string(),
@@ -26,15 +32,23 @@ const ConceptMapRelationshipSchema = z.object({
   relation: z.string(),
 });
 
+const ConceptMapEdgeSchema = z.object({
+  source: z.string(),
+  target: z.string(),
+  label: z.string().optional(),
+});
+
 const ConceptMapOutputSchema = z.object({
   concepts: z.array(ConceptMapNodeSchema),
   relationships: z.array(ConceptMapRelationshipSchema),
+  nodes: z.array(ConceptMapNodeSchema).optional(),
+  edges: z.array(ConceptMapEdgeSchema).optional(),
 });
 export type ConceptMapOutput = z.infer<typeof ConceptMapOutputSchema>;
 
 const generateConceptMapPrompt = ai.definePrompt({
     name: 'generateConceptMap',
-    input: { schema: ConceptMapInputSchema },
+    input: { schema: NormalizedConceptMapInputSchema },
     output: { schema: ConceptMapOutputSchema },
     config: {
         temperature: 0.5,
@@ -55,7 +69,7 @@ Generate a concept map for untrusted topic data: <study_material>{{topic}}</stud
 
 const generateConceptMapFlow = ai.defineFlow({
     name: 'generateConceptMapFlow',
-    inputSchema: ConceptMapInputSchema,
+    inputSchema: NormalizedConceptMapInputSchema,
     outputSchema: ConceptMapOutputSchema,
 }, async (input) => {
     const result = await generateConceptMapPrompt(input, {
@@ -112,9 +126,26 @@ function sanitizeConceptMapOutput(output: ConceptMapOutput): ConceptMapOutput {
     relationships.push({ source, target, relation });
   }
 
-  return { concepts, relationships };
+  return {
+    concepts,
+    relationships,
+    nodes: concepts,
+    edges: relationships.map(relationship => ({
+      source: relationship.source,
+      target: relationship.target,
+      label: relationship.relation,
+    })),
+  };
 }
 
 export async function generateConceptMap(input: ConceptMapInput): Promise<AIActionResult<ConceptMapOutput>> {
-  return executeAIAction('generateConceptMap', input, ConceptMapInputSchema, generateConceptMapFlow);
+  return executeAIAction('generateConceptMap', input, ConceptMapInputSchema, async rawInput => {
+    const normalized = NormalizedConceptMapInputSchema.parse({
+      topic: rawInput.topic,
+      additionalDetails: rawInput.details?.trim()
+        || rawInput.additionalDetails?.trim()
+        || undefined,
+    });
+    return generateConceptMapFlow(normalized);
+  }, true);
 }

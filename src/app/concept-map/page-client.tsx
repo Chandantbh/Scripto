@@ -90,16 +90,22 @@ function ConceptMapStudio() {
   }, [setEdges]);
 
   const layoutConcepts = (data: ConceptMapOutput) => {
+    const sourceConcepts = data.nodes ?? data.concepts;
+    const sourceRelationships = data.edges?.map(edge => ({
+      source: edge.source,
+      target: edge.target,
+      relation: edge.label ?? '',
+    })) ?? data.relationships;
     const outgoing = new Map<string, string[]>();
     const incoming = new Map<string, number>();
-    for (const concept of data.concepts) incoming.set(concept.id, 0);
-    for (const rel of data.relationships) {
+    for (const concept of sourceConcepts) incoming.set(concept.id, 0);
+    for (const rel of sourceRelationships) {
       outgoing.set(rel.source, [...(outgoing.get(rel.source) ?? []), rel.target]);
       incoming.set(rel.target, (incoming.get(rel.target) ?? 0) + 1);
     }
 
-    const roots = data.concepts.filter(concept => (incoming.get(concept.id) ?? 0) === 0);
-    const rootId = roots[0]?.id ?? data.concepts[0]?.id;
+    const roots = sourceConcepts.filter(concept => (incoming.get(concept.id) ?? 0) === 0);
+    const rootId = roots[0]?.id ?? sourceConcepts[0]?.id;
     const depth = new Map<string, number>([[rootId, 0]]);
     const queue = [rootId];
     while (queue.length) {
@@ -111,15 +117,15 @@ function ConceptMapStudio() {
         }
       }
     }
-    for (const concept of data.concepts) if (!depth.has(concept.id)) depth.set(concept.id, 1);
+    for (const concept of sourceConcepts) if (!depth.has(concept.id)) depth.set(concept.id, 1);
 
-    const levels = new Map<number, typeof data.concepts>();
-    for (const concept of data.concepts) {
+    const levels = new Map<number, typeof sourceConcepts>();
+    for (const concept of sourceConcepts) {
       const value = depth.get(concept.id) ?? 1;
       levels.set(value, [...(levels.get(value) ?? []), concept]);
     }
 
-    return data.concepts.map(concept => {
+    return sourceConcepts.map(concept => {
       const level = depth.get(concept.id) ?? 1;
       const peers = levels.get(level) ?? [];
       const peerIndex = peers.findIndex(peer => peer.id === concept.id);
@@ -146,14 +152,22 @@ function ConceptMapStudio() {
       const refinedDetails = [details.trim(), refinementPreset].filter(Boolean).join('\n');
       const result = unwrapAIActionResult(await generateConceptMap({
         topic,
-        additionalDetails: refinedDetails || undefined,
+        details: refinedDetails || undefined,
       }));
       const nextNodes = layoutConcepts(result);
-      const nextEdges: Edge[] = result.relationships.map((rel, index) => ({
-        id: `e-${rel.source}-${rel.target}-${index}`,
+      const nextEdges: Edge[] = (result.edges?.map(edge => ({
+        source: edge.source,
+        target: edge.target,
+        label: edge.label ?? '',
+      })) ?? result.relationships.map(rel => ({
         source: rel.source,
         target: rel.target,
         label: rel.relation,
+      }))).map((rel, index) => ({
+        id: `e-${rel.source}-${rel.target}-${index}`,
+        source: rel.source,
+        target: rel.target,
+        label: rel.label,
         type: 'smoothstep',
         markerEnd: { type: MarkerType.ArrowClosed, color: '#52525b' },
         style: { stroke: '#71717a', strokeWidth: 1.5 },
