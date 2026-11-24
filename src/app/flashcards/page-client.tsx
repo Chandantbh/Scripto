@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { BrainCircuit, Loader2, Wand2, Layers, BookOpen, Upload, Download, FileType, Youtube } from 'lucide-react';
+import { BrainCircuit, Loader2, Wand2, Layers, BookOpen, Upload, Download, FileType, Youtube, ChevronDown, FileJson } from 'lucide-react';
 
 import { generateFlashcards, type GenerateFlashcardsOutput, type GenerateFlashcardsInput } from '@/ai/flows/generate-flashcards';
 import { generateFromTopic } from '@/ai/flows/generate-from-topic';
@@ -20,10 +20,12 @@ import { classifyAIError, unwrapAIActionResult } from '@/lib/ai-action-result';
 import GenerationSkeleton from '@/components/app/generation-skeleton';
 import { useAuth } from '@clerk/nextjs';
 import { reserveGuestGeneration } from '@/lib/guest-mode';
-import { getDueFlashcardCount, getDueFlashcards, scheduleFlashcard, readFlashcardReviews, REVIEW_STORAGE_KEY, type FlashcardReview, type ReviewCard } from '@/lib/spaced-repetition';
+import { getDueFlashcardCount, getDueFlashcards, scheduleFlashcard, readFlashcardReviews, REVIEW_STORAGE_KEY, initializeFlashcardDeck, type FlashcardReview, type ReviewCard } from '@/lib/spaced-repetition';
 import { getFlashcardReviewsAction, syncFlashcardReviewsAction } from '@/app/actions/user-data';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import jsPDF from 'jspdf';
 
 type InputMode = 'text' | 'topic' | 'youtube' | 'file';
 
@@ -93,6 +95,14 @@ export default function FlashcardsPage() {
 
   const handleReview = async (card: ReviewCard, rating: 'again' | 'good' | 'easy') => {
     const reviews = scheduleFlashcard(card, rating);
+    const scheduled = reviews.find(review => review.card.question === card.question && review.card.answer === card.answer);
+    const interval = scheduled?.intervalMinutes ?? 0;
+    const feedback = rating === 'again'
+      ? 'Scheduled: Next review is due immediately'
+      : interval >= 24 * 60
+        ? `Scheduled: Next review in ${interval >= 48 * 60 ? Math.round(interval / 1440) : 1} day${interval >= 2880 ? 's' : ''}`
+        : `Scheduled: Next review in ${interval} minutes`;
+    toast({ title: feedback });
     setDueCount(getDueFlashcardCount(new Date(), reviews));
     setDueCards(getDueFlashcards(new Date(), reviews));
     if (isSignedIn) {
@@ -101,7 +111,10 @@ export default function FlashcardsPage() {
   };
 
   const handleDrillDue = () => {
-    const cards = getDueFlashcards();
+    const now = Date.now();
+    const cards = readFlashcardReviews()
+      .filter(review => new Date(review.nextReviewAt ?? review.dueAt).getTime() <= now)
+      .map(review => review.card);
     if (cards.length > 0) {
       setGeneratedContent({
         flashcards: cards.map(card => ({
@@ -123,14 +136,52 @@ export default function FlashcardsPage() {
       const cleaned = value.replace(/\r?\n/g, ' ').replace(/"/g, '""');
       return `"${cleaned}"`;
     };
-    const rows = generatedContent.flashcards.map(card =>
+    const rows = ['"Front","Back"', ...generatedContent.flashcards.map(card =>
       `${escapeCsv(card.question)},${escapeCsv(card.answer)}`
-    );
+    )];
     const blob = new Blob(['\ufeff' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
     link.download = 'scripto-anki-cards.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPdf = () => {
+    if (!generatedContent?.flashcards?.length) return;
+    const doc = new jsPDF();
+    let y = 20;
+    doc.setFontSize(18);
+    doc.text('Scripto Printable Study Sheet', 14, y);
+    y += 12;
+    generatedContent.flashcards.forEach((card, index) => {
+      if (y > 260) {
+        doc.addPage();
+        y = 20;
+      }
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      const question = doc.splitTextToSize(`Q${index + 1}: ${card.question}`, 180) as string[];
+      doc.text(question, 14, y);
+      y += question.length * 5 + 3;
+      doc.setFont('helvetica', 'normal');
+      const answer = doc.splitTextToSize(`A: ${card.answer}`, 180) as string[];
+      doc.text(answer, 14, y);
+      y += answer.length * 5 + 8;
+    });
+    doc.save('scripto-study-sheet.pdf');
+  };
+
+  const handleExportJson = () => {
+    if (!generatedContent?.flashcards?.length) return;
+    const blob = new Blob([JSON.stringify(generatedContent.flashcards, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'scripto-flashcards.json';
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -207,6 +258,13 @@ export default function FlashcardsPage() {
             result = unwrapAIActionResult(await generateFlashcards(input));
         }
 
+      const initialized = initializeFlashcardDeck(result.flashcards);
+      window.localStorage.setItem(REVIEW_STORAGE_KEY, JSON.stringify(initialized));
+      setDueCount(getDueFlashcardCount(new Date(), initialized));
+      setDueCards(getDueFlashcards(new Date(), initialized));
+      if (isSignedIn) {
+        await syncFlashcardReviewsAction(initialized);
+      }
       setGeneratedContent(result);
       setComposerOpen(false);
     } catch (error) {
@@ -258,10 +316,23 @@ export default function FlashcardsPage() {
           Drill due cards
         </Button>
         {generatedContent?.flashcards?.length ? (
-          <Button variant="outline" onClick={handleExportAnki}>
-            <Download className="mr-2 h-4 w-4" />
-            Export for Anki (.csv)
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline">
+                <Download className="mr-2 h-4 w-4" />
+                Export
+                <ChevronDown className="ml-2 h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={handleExportAnki}>Anki Deck (.csv)</DropdownMenuItem>
+              <DropdownMenuItem onSelect={handleExportPdf}>Printable Study Sheet (.pdf)</DropdownMenuItem>
+              <DropdownMenuItem onSelect={handleExportJson}>
+                <FileJson className="mr-2 h-4 w-4" />
+                Raw Deck (.json)
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         ) : null}
       </div>
       <AIErrorBanner

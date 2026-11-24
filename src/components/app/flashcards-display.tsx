@@ -1,15 +1,14 @@
 ﻿'use client';
 
-import { useState, type FC } from 'react';
-import { RefreshCw, Download, FileJson } from 'lucide-react';
-import jsPDF from 'jspdf';
-import { useToast } from '@/hooks/use-toast';
+import { useEffect, useState, type FC } from 'react';
+import { RefreshCw } from 'lucide-react';
 import {
   Carousel,
   CarouselContent,
   CarouselItem,
   CarouselNext,
   CarouselPrevious,
+  type CarouselApi,
 } from '@/components/ui/carousel';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -29,64 +28,63 @@ interface FlashcardsDisplayProps {
 }
 
 const FlashcardsDisplay: FC<FlashcardsDisplayProps> = ({ flashcards, onReview }) => {
-  const { toast } = useToast();
   // State for flipped cards
   const [flippedStates, setFlippedStates] = useState<boolean[]>(
       () => Array(flashcards?.length || 0).fill(false)
   );
 
-  const handleExportPdf = () => {
-    try {
-      const doc = new jsPDF();
-      let yPos = 20;
-
-      doc.setFontSize(20);
-      doc.text('Flashcards', 14, yPos);
-      yPos += 10;
-      doc.setFontSize(12);
-
-      flashcards.forEach((card, index) => {
-        if (yPos > 270) {
-          doc.addPage();
-          yPos = 20;
-        }
-        
-        doc.setFont('helvetica', 'bold');
-        doc.text(`Q${index + 1}: ${card.question}`, 14, yPos);
-        yPos += 7;
-        
-        doc.setFont('helvetica', 'normal');
-        // Handle multiline answers
-        const splitAnswer = doc.splitTextToSize(`A: ${card.answer}`, 180);
-        doc.text(splitAnswer, 14, yPos);
-        yPos += (splitAnswer.length * 7) + 5;
-      });
-
-      doc.save('scripto-flashcards.pdf');
-      toast({ title: "Flashcards Exported", description: "PDF has been downloaded" });
-    } catch (e) {
-      toast({ variant: 'destructive', title: "Export Failed" });
-    }
-  };
-
-  const handleExportJson = () => {
-    const dataStr = JSON.stringify(flashcards, null, 2);
-    const blob = new Blob([dataStr], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "flashcards.json";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toast({ title: "Flashcards Exported", description: "JSON has been downloaded" });
-  };
+  const [api, setApi] = useState<CarouselApi>();
+  const [currentIndex, setCurrentIndex] = useState(0);
 
   const handleFlip = (index: number) => {
     const newFlippedStates = [...flippedStates];
     newFlippedStates[index] = !newFlippedStates[index];
     setFlippedStates(newFlippedStates);
   };
+
+  useEffect(() => {
+    if (!api) return;
+    const update = () => setCurrentIndex(api.selectedScrollSnap());
+    update();
+    api.on('select', update);
+    return () => {
+      void api.off('select', update);
+    };
+  }, [api]);
+
+  useEffect(() => {
+    setFlippedStates(Array(flashcards.length).fill(false));
+  }, [flashcards]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.matches('input, textarea, select, [contenteditable="true"]')) return;
+      if (event.code === 'Space') {
+        event.preventDefault();
+        handleFlip(currentIndex);
+      } else if (event.key === '1' && flippedStates[currentIndex] && onReview) {
+        event.preventDefault();
+        onReview(flashcardAt(currentIndex), 'again');
+        setFlippedStates(Array(flashcards.length).fill(false));
+        api?.scrollNext();
+      } else if (event.key === '2' && flippedStates[currentIndex] && onReview) {
+        event.preventDefault();
+        onReview(flashcardAt(currentIndex), 'good');
+        setFlippedStates(Array(flashcards.length).fill(false));
+        api?.scrollNext();
+      } else if (event.key === '3' && flippedStates[currentIndex] && onReview) {
+        event.preventDefault();
+        onReview(flashcardAt(currentIndex), 'easy');
+        setFlippedStates(Array(flashcards.length).fill(false));
+        api?.scrollNext();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  });
+
+  const flashcardAt = (index: number): Flashcard => flashcards[index];
 
   if (!flashcards || flashcards.length === 0) {
     return (
@@ -98,18 +96,7 @@ const FlashcardsDisplay: FC<FlashcardsDisplayProps> = ({ flashcards, onReview })
 
   return (
     <div className="flex flex-col gap-6 w-full">
-      <div className="flex justify-end gap-2">
-        <Button variant="outline" size="sm" onClick={handleExportJson}>
-          <FileJson className="h-4 w-4 mr-2" />
-          JSON
-        </Button>
-        <Button variant="outline" size="sm" onClick={handleExportPdf}>
-          <Download className="h-4 w-4 mr-2" />
-          PDF
-        </Button>
-      </div>
-      
-      <Carousel className="w-full max-w-md mx-auto">
+      <Carousel setApi={setApi} className="w-full max-w-md mx-auto">
         <CarouselContent>
           {flashcards.map((flashcard, index) => {
             return (
@@ -158,9 +145,24 @@ const FlashcardsDisplay: FC<FlashcardsDisplayProps> = ({ flashcards, onReview })
                           <div className="border-t border-border p-4">
                             {onReview ? (
                               <div className="grid grid-cols-3 gap-2">
-                                <Button variant="destructive" size="sm" onClick={() => onReview(flashcard, 'again')}>Again</Button>
-                                <Button variant="secondary" size="sm" onClick={() => onReview(flashcard, 'good')}>Good</Button>
-                                <Button size="sm" onClick={() => onReview(flashcard, 'easy')}>Easy</Button>
+                                <Button type="button" variant="destructive" size="sm" onClick={event => {
+                                  event.stopPropagation();
+                                  onReview(flashcard, 'again');
+                                  setFlippedStates(Array(flashcards.length).fill(false));
+                                  api?.scrollNext();
+                                }}>Again</Button>
+                                <Button type="button" variant="secondary" size="sm" onClick={event => {
+                                  event.stopPropagation();
+                                  onReview(flashcard, 'good');
+                                  setFlippedStates(Array(flashcards.length).fill(false));
+                                  api?.scrollNext();
+                                }}>Good</Button>
+                                <Button type="button" size="sm" onClick={event => {
+                                  event.stopPropagation();
+                                  onReview(flashcard, 'easy');
+                                  setFlippedStates(Array(flashcards.length).fill(false));
+                                  api?.scrollNext();
+                                }}>Easy</Button>
                               </div>
                             ) : (
                               <Button

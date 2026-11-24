@@ -12,26 +12,48 @@ export interface ReviewCard {
 export interface FlashcardReview {
   key: string;
   card: ReviewCard;
+  nextReviewAt: string;
   dueAt: string;
+  interval: number;
   intervalMinutes: number;
+  repetition: number;
   repetitions: number;
+  easeFactor: number;
   updatedAt: string;
 }
 
 export const REVIEW_STORAGE_KEY = 'scripto_flashcard_reviews';
 
 export function getReviewIntervalMinutes(rating: ReviewRating): number {
-  return rating === 'again' ? 10 : rating === 'good' ? 24 * 60 : 4 * 24 * 60;
+  return rating === 'again' ? 0 : rating === 'good' ? 24 * 60 : 4 * 24 * 60;
 }
 
 export function getReviewDueAt(card: ReviewCard, rating: ReviewRating, now = new Date(), existing?: FlashcardReview): FlashcardReview {
-  const intervalMinutes = getReviewIntervalMinutes(rating);
+  const easeFactor = Math.max(1.3, (existing?.easeFactor ?? 2.5) - (rating === 'again' ? 0.2 : 0));
+  let intervalMinutes: number;
+  let repetition: number;
+
+  if (rating === 'again') {
+    intervalMinutes = 0;
+    repetition = 0;
+  } else if (rating === 'good') {
+    repetition = (existing?.repetition ?? existing?.repetitions ?? 0) + 1;
+    intervalMinutes = repetition === 1 ? 24 * 60 : 6 * 24 * 60;
+  } else {
+    repetition = (existing?.repetition ?? existing?.repetitions ?? 0) + 1;
+    intervalMinutes = repetition === 1 ? 4 * 24 * 60 : Math.round(4 * easeFactor * 24 * 60);
+  }
+  const nextReviewAt = new Date(now.getTime() + intervalMinutes * 60 * 1000).toISOString();
   return {
     key: cardKey(card),
-    card,
-    dueAt: new Date(now.getTime() + intervalMinutes * 60 * 1000).toISOString(),
+    card: { ...card },
+    nextReviewAt,
+    dueAt: nextReviewAt,
+    interval: intervalMinutes,
     intervalMinutes,
-    repetitions: rating === 'again' ? 0 : (existing?.repetitions ?? 0) + 1,
+    repetition,
+    repetitions: repetition,
+    easeFactor,
     updatedAt: now.toISOString(),
   };
 }
@@ -59,7 +81,7 @@ function isFlashcardReview(value: unknown): value is FlashcardReview {
   if (!value || typeof value !== 'object') return false;
   const review = value as Record<string, unknown>;
   return typeof review.key === 'string'
-    && typeof review.dueAt === 'string'
+    && typeof (review.nextReviewAt ?? review.dueAt) === 'string'
     && typeof review.intervalMinutes === 'number'
     && typeof review.repetitions === 'number'
     && typeof review.updatedAt === 'string'
@@ -70,12 +92,12 @@ function isFlashcardReview(value: unknown): value is FlashcardReview {
 
 export function getDueFlashcards(now = new Date(), reviews = readFlashcardReviews()): ReviewCard[] {
   const cutoff = now.getTime();
-  const due = reviews.filter(review => new Date(review.dueAt).getTime() <= cutoff);
+  const due = reviews.filter(review => new Date(review.nextReviewAt ?? review.dueAt).getTime() <= cutoff);
   return due.map(review => review.card);
 }
 
 export function getDueFlashcardCount(now = new Date(), reviews = readFlashcardReviews()): number {
-  return reviews.filter(review => new Date(review.dueAt).getTime() <= now.getTime()).length;
+  return reviews.filter(review => new Date(review.nextReviewAt ?? review.dueAt).getTime() <= now.getTime()).length;
 }
 
 export function scheduleFlashcard(card: ReviewCard, rating: ReviewRating, now = new Date()): FlashcardReview[] {
@@ -94,4 +116,32 @@ export function scheduleFlashcard(card: ReviewCard, rating: ReviewRating, now = 
     window.localStorage.setItem(REVIEW_STORAGE_KEY, JSON.stringify(updated));
   }
   return updated;
+}
+
+export function initializeFlashcardReview(card: ReviewCard, now = new Date(), key?: string): FlashcardReview {
+  const resolvedKey = key ?? cardKey(card);
+  const nextReviewAt = now.toISOString();
+  return {
+    key: resolvedKey,
+    card: { ...card },
+    nextReviewAt,
+    dueAt: nextReviewAt,
+    interval: 0,
+    intervalMinutes: 0,
+    repetition: 0,
+    repetitions: 0,
+    easeFactor: 2.5,
+    updatedAt: now.toISOString(),
+  };
+}
+
+export function initializeFlashcardDeck(cards: ReviewCard[], now = new Date(), existing: FlashcardReview[] = readFlashcardReviews()): FlashcardReview[] {
+  const byKey = new Map(existing.map(review => [review.key, review]));
+  const initialized = cards.map(card => {
+    const key = cardKey(card);
+    return byKey.get(key) ?? initializeFlashcardReview(card, now, key);
+  });
+  const keys = new Set(initialized.map(review => review.key));
+  const untouched = existing.filter(review => !keys.has(review.key));
+  return [...initialized, ...untouched];
 }
