@@ -7,7 +7,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
 import { generateQuiz } from '@/ai/flows/generate-quiz';
 import { generateFlashcards } from '@/ai/flows/generate-flashcards';
-import { unwrapAIActionResult } from '@/lib/ai-action-result';
+import { classifyAIError, unwrapAIActionResult } from '@/lib/ai-action-result';
+import AIErrorBanner from '@/components/app/ai-error-banner';
 import { reserveGuestGeneration } from '@/lib/guest-mode';
 import { useAuth } from '@clerk/nextjs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -43,6 +44,8 @@ export default function StudyStudio({
   const [questionText, setQuestionText] = useState('');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
+  const [studioError, setStudioError] = useState<string | null>(null);
+  const [chatRetryPrompt, setChatRetryPrompt] = useState<string | null>(null);
   const [items, setItems] = useState<{ question: string; answer?: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const lastActionRef = useRef('');
@@ -89,6 +92,7 @@ export default function StudyStudio({
     if (!notes.trim()) return;
     if (!reserveGuestGeneration(Boolean(isSignedIn))) return;
     setLoading(true);
+    setStudioError(null);
     try {
       const source = focusText ? `${notes}\n\nFocus especially on: ${focusText}` : notes;
       if (kind === 'quiz') {
@@ -106,6 +110,10 @@ export default function StudyStudio({
         })));
         setMastery(value => Math.min(100, value + 8));
       }
+    } catch (error) {
+      const friendly = classifyAIError(error);
+      setStudioError(friendly.message);
+      toast({ variant: 'destructive', title: 'Could not generate study material', description: friendly.message });
     } finally {
       setLoading(false);
     }
@@ -119,6 +127,8 @@ export default function StudyStudio({
     const nextMessages: ChatMessage[] = [...chatMessages, { role: 'user', content: message }];
     setChatMessages(nextMessages);
     setQuestionText('');
+    setStudioError(null);
+    setChatRetryPrompt(message);
     setChatLoading(true);
     try {
       const history = nextMessages
@@ -134,6 +144,9 @@ export default function StudyStudio({
       ]);
       setMastery(value => Math.min(100, value + 4));
     } catch (error) {
+      const friendly = classifyAIError(error);
+      setStudioError(friendly.message);
+      toast({ variant: 'destructive', title: 'Could not answer chat', description: friendly.message });
       setChatMessages(current => [
         ...current,
         {
@@ -211,6 +224,21 @@ export default function StudyStudio({
       </div>
 
       <div className="flex-1 overflow-auto p-4">
+        {studioError && (
+          <div className="mb-4">
+            <AIErrorBanner
+              message={studioError}
+              onRetry={tab === 'chat' && chatRetryPrompt
+                ? () => void sendChatMessage(chatRetryPrompt)
+                : tab === 'quiz'
+                  ? () => void generateRecall('quiz')
+                  : tab === 'cards'
+                    ? () => void generateRecall('cards')
+                    : undefined}
+              showSignIn={studioError.toLowerCase().includes('sign in')}
+            />
+          </div>
+        )}
         {tab === 'quiz' && (
           <div className="space-y-3">
             <Tooltip>

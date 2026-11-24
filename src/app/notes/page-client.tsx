@@ -47,7 +47,7 @@ import { extractTextFromFile } from '@/lib/file-parser';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
 import AudioPlayer from '@/components/app/audio-player';
 import AIErrorBanner from '@/components/app/ai-error-banner';
-import { getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
+import { classifyAIError, unwrapAIActionResult } from '@/lib/ai-action-result';
 import {
   deleteSavedNoteAction,
   getSavedNotesAction,
@@ -270,7 +270,13 @@ export default function NotesPage() {
       const { audioDataUri } = unwrapAIActionResult(await textToSpeech({ text: textToPlay }));
       setAudioSrc(audioDataUri);
     } catch (error) {
-      setGenerationError(getAIErrorMessage(error));
+      const friendly = classifyAIError(error);
+      setGenerationError(friendly.message);
+      toast({
+        variant: 'destructive',
+        title: 'Could not generate notes',
+        description: friendly.message,
+      });
     } finally {
       setIsSynthesizing(null);
     }
@@ -559,7 +565,13 @@ export default function NotesPage() {
       setComposerOpen(false);
       setMobileView('studio');
     } catch (error) {
-      setGenerationError(getAIErrorMessage(error));
+      const friendly = classifyAIError(error);
+      setGenerationError(friendly.message);
+      toast({
+        variant: 'destructive',
+        title: 'Could not generate notes',
+        description: friendly.message,
+      });
     } finally {
       generationInProgressRef.current = false;
       setIsLoading(false);
@@ -608,7 +620,11 @@ export default function NotesPage() {
           </div>
       </div>
 
-      <AIErrorBanner message={generationError} />
+      <AIErrorBanner
+        message={generationError}
+        onRetry={generationError ? handleGenerate : undefined}
+        showSignIn={generationError?.toLowerCase().includes('sign in') ?? false}
+      />
       {showSignInPrompt && (
         <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted px-4 py-3 text-sm">
           <span className="text-muted-foreground">Sign in to save notes and access them across devices.</span>

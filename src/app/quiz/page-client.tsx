@@ -23,7 +23,7 @@ import { achievements } from '@/lib/achievements';
 import { recordActivityAction } from '@/app/actions/user-data';
 import { recordActivityLocally, type ActivityProgressUpdate, type ActivityInput } from '@/lib/gamification';
 import AIErrorBanner from '@/components/app/ai-error-banner';
-import { getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
+import { classifyAIError, unwrapAIActionResult } from '@/lib/ai-action-result';
 import GenerationSkeleton from '@/components/app/generation-skeleton';
 import { readStudyPreferences } from '@/components/app/settings-dialog';
 import { useAuth } from '@clerk/nextjs';
@@ -139,7 +139,9 @@ export default function QuizPage() {
           const { audioDataUri } = unwrapAIActionResult(await textToSpeech({ text: textToPlay }));
           setAudioSrc(audioDataUri);
       } catch (error) {
-          setGenerationError(getAIErrorMessage(error));
+          const friendly = classifyAIError(error);
+          setGenerationError(friendly.message);
+          toast({ variant: 'destructive', title: 'Could not create audio', description: friendly.message });
       } finally {
           setIsSynthesizing(null);
       }
@@ -224,7 +226,9 @@ export default function QuizPage() {
       setGeneratedContent(result);
       setComposerOpen(false);
     } catch (error) {
-      setGenerationError(getAIErrorMessage(error));
+      const friendly = classifyAIError(error);
+      setGenerationError(friendly.message);
+      toast({ variant: 'destructive', title: 'Could not generate quiz', description: friendly.message });
     } finally {
       generationInProgressRef.current = false;
       setIsLoading(false);
@@ -336,7 +340,11 @@ export default function QuizPage() {
           Drill Weak Topics
         </Button>
       </div>
-       <AIErrorBanner message={generationError} />
+       <AIErrorBanner
+         message={generationError}
+         onRetry={generationError ? handleGenerate : undefined}
+         showSignIn={generationError?.toLowerCase().includes('sign in') ?? false}
+       />
         {generatedContent && (
           <div className="mb-5 flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">

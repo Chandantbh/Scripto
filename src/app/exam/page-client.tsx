@@ -23,7 +23,7 @@ import { achievements } from '@/lib/achievements';
 import { recordActivityAction } from '@/app/actions/user-data';
 import { recordActivityLocally, type ActivityProgressUpdate, type ActivityInput } from '@/lib/gamification';
 import AIErrorBanner from '@/components/app/ai-error-banner';
-import { getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
+import { classifyAIError, unwrapAIActionResult } from '@/lib/ai-action-result';
 import { useAuth } from '@clerk/nextjs';
 import { reserveGuestGeneration } from '@/lib/guest-mode';
 import GenerationSkeleton from '@/components/app/generation-skeleton';
@@ -119,7 +119,9 @@ export default function ExamPage() {
         description: 'Your exam paper is ready to be taken.',
       });
     } catch (error) {
-      setGenerationError(getAIErrorMessage(error));
+      const friendly = classifyAIError(error);
+      setGenerationError(friendly.message);
+      toast({ variant: 'destructive', title: 'Could not generate exam', description: friendly.message });
     } finally {
       generationInProgressRef.current = false;
       setIsLoading(false);
@@ -214,7 +216,9 @@ export default function ExamPage() {
         description: "Check out your results and feedback below."
       });
     } catch (error) {
-      setGenerationError(getAIErrorMessage(error));
+      const friendly = classifyAIError(error);
+      setGenerationError(friendly.message);
+      toast({ variant: 'destructive', title: 'Could not evaluate exam', description: friendly.message });
     } finally {
       evaluationInProgressRef.current = false;
       setIsEvaluating(false);
@@ -473,7 +477,11 @@ export default function ExamPage() {
         )}
       </div>
 
-      <AIErrorBanner message={generationError} />
+      <AIErrorBanner
+        message={generationError}
+        onRetry={generationError ? (() => generatedExam ? onExamSubmit(examAnswersForm.getValues()) : void onConfigSubmit(form.getValues())) : undefined}
+        showSignIn={generationError?.toLowerCase().includes('sign in') ?? false}
+      />
 
       {(generatedExam || evaluationResult) && (
         <div className="mb-5 flex flex-col gap-1 rounded-xl border border-border bg-card px-4 py-3">

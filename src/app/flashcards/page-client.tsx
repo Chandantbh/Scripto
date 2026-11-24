@@ -16,13 +16,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { extractTextFromFile } from '@/lib/file-parser';
 import AIErrorBanner from '@/components/app/ai-error-banner';
-import { getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
+import { classifyAIError, unwrapAIActionResult } from '@/lib/ai-action-result';
 import GenerationSkeleton from '@/components/app/generation-skeleton';
 import { useAuth } from '@clerk/nextjs';
 import { reserveGuestGeneration } from '@/lib/guest-mode';
 import { getDueFlashcardCount, getDueFlashcards, scheduleFlashcard, readFlashcardReviews, REVIEW_STORAGE_KEY, type FlashcardReview, type ReviewCard } from '@/lib/spaced-repetition';
 import { getFlashcardReviewsAction, syncFlashcardReviewsAction } from '@/app/actions/user-data';
 import { Badge } from '@/components/ui/badge';
+import { useToast } from '@/hooks/use-toast';
 
 type InputMode = 'text' | 'topic' | 'youtube' | 'file';
 
@@ -36,6 +37,7 @@ interface GeneratedContent {
 
 export default function FlashcardsPage() {
   const { isSignedIn } = useAuth();
+  const { toast } = useToast();
   const searchParams = useSearchParams();
   const [inputMode, setInputMode] = useState<InputMode>('text');
   const [text, setText] = useState('');
@@ -208,7 +210,9 @@ export default function FlashcardsPage() {
       setGeneratedContent(result);
       setComposerOpen(false);
     } catch (error) {
-      setGenerationError(getAIErrorMessage(error));
+      const friendly = classifyAIError(error);
+      setGenerationError(friendly.message);
+      toast({ variant: 'destructive', title: 'Could not generate flashcards', description: friendly.message });
     } finally {
       generationInProgressRef.current = false;
       setIsLoading(false);
@@ -260,7 +264,11 @@ export default function FlashcardsPage() {
           </Button>
         ) : null}
       </div>
-      <AIErrorBanner message={generationError} />
+      <AIErrorBanner
+        message={generationError}
+        onRetry={generationError ? handleGenerate : undefined}
+        showSignIn={generationError?.toLowerCase().includes('sign in') ?? false}
+      />
       {generatedContent && (
         <div className="mb-5 flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">

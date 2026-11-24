@@ -14,11 +14,12 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import AIErrorBanner from '@/components/app/ai-error-banner';
-import { AIActionFailure, getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
+import { classifyAIError, unwrapAIActionResult } from '@/lib/ai-action-result';
 import GenerationSkeleton from '@/components/app/generation-skeleton';
 import { readStudyPreferences } from '@/components/app/settings-dialog';
 import { useAuth } from '@clerk/nextjs';
 import { reserveGuestGeneration } from '@/lib/guest-mode';
+import { useToast } from '@/hooks/use-toast';
 
 type Difficulty = 'easy' | 'medium' | 'hard';
 type InputMode = 'text' | 'file' | 'image' | 'youtube';
@@ -38,6 +39,7 @@ const MAX_IMAGE_UPLOAD_BYTES = 512 * 1024;
 
 export default function Eli5Page() {
   const { isSignedIn } = useAuth();
+  const { toast } = useToast();
   const [inputText, setInputText] = useState('');
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [difficulty, setDifficulty] = useState<Difficulty>('easy');
@@ -104,11 +106,11 @@ export default function Eli5Page() {
       setGeneratedContent(unwrapAIActionResult(await explainLikeImFive(input)));
       setComposerOpen(false);
     } catch (error) {
-      setGenerationError(error instanceof InputSelectionError
-        ? error.message
-        : error instanceof AIActionFailure
-          ? error.message
-          : getAIErrorMessage(error));
+      const friendly = error instanceof InputSelectionError
+        ? { message: error.message, kind: 'file' as const }
+        : classifyAIError(error);
+      setGenerationError(friendly.message);
+      toast({ variant: 'destructive', title: 'Could not generate explanation', description: friendly.message });
     } finally {
       generationInProgressRef.current = false;
       setIsLoading(false);
@@ -146,7 +148,11 @@ export default function Eli5Page() {
           <p className="text-muted-foreground">Get a tailored explanation for any topic from any source.</p>
         </div>
       </div>
-      <AIErrorBanner message={generationError} />
+      <AIErrorBanner
+        message={generationError}
+        onRetry={generationError ? handleGenerate : undefined}
+        showSignIn={generationError?.toLowerCase().includes('sign in') ?? false}
+      />
       {generatedContent && (
         <div className="mb-5 flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">

@@ -27,7 +27,7 @@ import { useToast } from '@/hooks/use-toast';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import AIErrorBanner from '@/components/app/ai-error-banner';
-import { getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
+import { classifyAIError, unwrapAIActionResult } from '@/lib/ai-action-result';
 import { useAuth } from '@clerk/nextjs';
 import { reserveGuestGeneration } from '@/lib/guest-mode';
 import GenerationSkeleton from '@/components/app/generation-skeleton';
@@ -141,7 +141,9 @@ export default function ConceptMapPage() {
       }
 
     } catch (error) {
-      setGenerationError(getAIErrorMessage(error));
+      const friendly = classifyAIError(error);
+      setGenerationError(friendly.message);
+      toast({ variant: 'destructive', title: 'Could not generate concept map', description: friendly.message });
     } finally {
       generationInProgressRef.current = false;
       setIsLoading(false);
@@ -198,7 +200,11 @@ export default function ConceptMapPage() {
         </div>
       </div>
 
-      <AIErrorBanner message={generationError} />
+      <AIErrorBanner
+        message={generationError}
+        onRetry={generationError ? handleGenerate : undefined}
+        showSignIn={generationError?.toLowerCase().includes('sign in') ?? false}
+      />
 
       {nodes.length > 1 && (
         <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
