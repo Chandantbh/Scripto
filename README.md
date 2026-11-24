@@ -1,9 +1,11 @@
 # Scripto
 
-An AI-powered active recall study workspace that turns topics, PDFs, DOCX files, and YouTube lectures into structured notes, quizzes, spaced-repetition flashcards, and concept maps.
-
 [![CI](https://github.com/Chandantbh/Scripto/actions/workflows/ci.yml/badge.svg)](https://github.com/Chandantbh/Scripto/actions/workflows/ci.yml)
 [![Live Demo](https://img.shields.io/badge/Live_Demo-scripto--gules.vercel.app-2563EB?style=flat)](https://scripto-gules.vercel.app)
+
+> **Live demo:** [https://scripto-gules.vercel.app](https://scripto-gules.vercel.app)
+
+An AI-powered active recall study workspace that turns text, topics, YouTube transcripts, PDF documents, and DOCX documents into structured notes, quizzes, spaced-repetition flashcards, mock exams, and concept maps.
 
 ## Screenshots
 
@@ -45,6 +47,19 @@ An AI-powered active recall study workspace that turns topics, PDFs, DOCX files,
 - Translate complex material into simple ELI5 explanations.
 - Explore interactive React Flow knowledge graphs with connected concepts and relationships.
 
+### AI Study Flows & Exports
+
+Scripto provides six structured AI flows:
+
+1. **Notes** — Markdown study notes from text, a topic, YouTube transcripts, PDF, or DOCX.
+2. **Quiz** — Multiple-choice active recall practice.
+3. **Flashcards** — Question-and-answer cards with spaced-repetition review.
+4. **Simple Explainer** — ELI5 explanations and simpler study breakdowns.
+5. **Mock Exam** — Custom timed exams with AI scoring and feedback.
+6. **Concept Map** — Interactive concept and relationship graphs.
+
+Export study output as PDF, Markdown, or Anki-compatible CSV flashcards.
+
 ### Shareable Study Packs (`/s/[slug]`)
 
 - Share a clean public read-only `/s/[slug]` link from the Study Studio toolbar.
@@ -62,6 +77,26 @@ An AI-powered active recall study workspace that turns topics, PDFs, DOCX files,
 - Google Genkit / Gemini
 - React Flow
 - jsPDF
+
+## How It Works & Architecture
+
+Scripto follows a server-validated, account-scoped pipeline: users ingest supported study material, the app verifies file types and size/character limits, server actions enforce Clerk identity and sliding-window rate limits, and Genkit/Gemini produce typed structured results for the Study Studio.
+
+```mermaid
+flowchart LR
+    A[Study Source<br/>Text or Topic] --> V[Server Validation]
+    B[YouTube Transcript] --> V
+    C[PDF or DOCX<br/>Magic-Byte Validation] --> V
+    V --> D[Clerk Auth & Guest Identity]
+    D --> E[Sliding-Window Rate Limiter<br/>Upstash Redis or In-Memory]
+    E --> F[Genkit + Gemini Structured AI Flows]
+    F --> G[2-Pane Study Studio]
+    G --> H[Notes, Quiz, Flashcards, Exam, ELI5, Concept Map]
+    G --> I[SM-2 Review Scheduling]
+    G --> J[PDF, Markdown & Anki Exports]
+    G --> K[Supabase User-Scoped Persistence]
+    K --> L[Clerk user_id IDOR Protection]
+```
 
 ## Local Setup
 
@@ -86,13 +121,15 @@ npm install
 Create `.env.local` in the repository root and add the variables used by Scripto:
 
 ```env
-NEXT_PUBLIC_APP_URL=
+GOOGLE_GENAI_API_KEY=
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
 CLERK_SECRET_KEY=
-SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
-GEMINI_API_KEY=
 UNSPLASH_ACCESS_KEY=
+UPSTASH_REDIS_REST_URL=
+UPSTASH_REDIS_REST_TOKEN=
 ```
 
 Use values from your own Clerk, Supabase, Google Gemini, and Unsplash accounts. Leave optional variables blank when they are not configured.
