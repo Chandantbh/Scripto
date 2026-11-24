@@ -17,6 +17,7 @@ import {MAX_AI_TEXT_CHARACTERS} from '@/ai/generation-limits';
 import { getYouTubeSource } from '@/services/youtube';
 import {z} from 'genkit';
 import {type AIActionResult} from '@/types/ai-action';
+import {PROMPT_SYSTEM_INSTRUCTIONS, wrapUntrustedContent} from '@/ai/prompt-security';
 
 const GenerateNotesInputSchema = z.object({
   text: z.string().trim().min(1).max(MAX_AI_TEXT_CHARACTERS).optional().describe('The text to generate notes from.'),
@@ -39,10 +40,11 @@ const generateNotesPrompt = ai.definePrompt({
   name: 'generateNotesPrompt',
   input: { schema: z.object({ content: z.string().optional(), youtubeUrl: z.string().optional(), format: z.string().optional() }) },
   output: {schema: GenerateNotesOutputSchema},
-  prompt: `You are an expert note-taker. Generate detailed, well-structured, and easy-to-understand notes from the following content. Use markdown for formatting, including headings, lists, and bold text to highlight key points.
+  prompt: `${PROMPT_SYSTEM_INSTRUCTIONS}
+  You are an expert note-taker. Generate detailed, well-structured, and easy-to-understand notes from the following content. Use markdown for formatting, including headings, lists, and bold text to highlight key points.
   Use the requested {{{format}}} note format. If Concise, keep it short. If Cornell, use Cues, Notes, and Summary sections.
 
-  {{#if content}}Content to analyze: {{{content}}}{{/if}}
+  {{#if content}}<study_material>{{{content}}}</study_material>{{/if}}
   {{#if youtubeUrl}}YouTube video: {{media url=youtubeUrl}}{{/if}}
   `,
 });
@@ -72,7 +74,7 @@ const generateNotesFlow = ai.defineFlow(
         content: content || undefined,
         youtubeUrl,
         format: input.format ?? 'Detailed',
-      }, model ? {model} : undefined)
+      }, model ? { model, config: { maxOutputTokens: 4096 } } : { config: { maxOutputTokens: 4096 } })
     );
 
     if (!output) {

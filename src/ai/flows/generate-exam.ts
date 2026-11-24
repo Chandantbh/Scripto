@@ -10,6 +10,7 @@ import { generateWithModelFallback } from '@/ai/model-retry';
 import { executeAIAction } from '@/ai/action-guard';
 import { GenerateExamInputSchema, type GenerateExamInput, GenerateExamOutputSchema, type GenerateExamOutput } from '@/ai/schemas/exam-schemas';
 import { type AIActionResult } from '@/types/ai-action';
+import { PROMPT_SYSTEM_INSTRUCTIONS } from '@/ai/prompt-security';
 
 export async function generateExam(input: GenerateExamInput): Promise<AIActionResult<GenerateExamOutput>> {
   return executeAIAction('generateExam', input, GenerateExamInputSchema, generateExamFlow);
@@ -19,16 +20,17 @@ const prompt = ai.definePrompt({
   name: 'generateExamPrompt',
   input: { schema: GenerateExamInputSchema },
   output: { schema: GenerateExamOutputSchema },
-  prompt: `You are an expert educator and exam creator. Your task is to generate a comprehensive exam paper based on the provided specifications.
+  prompt: `${PROMPT_SYSTEM_INSTRUCTIONS}
+You are an expert educator and exam creator. Your task is to generate a comprehensive exam paper based on the provided specifications.
 
   **CRITICAL INSTRUCTIONS:**
   1. The sum of marks for all generated questions *MUST* exactly equal the 'totalMarks' specified. This is the most important rule. Do not deviate.
   2. You must determine a 'timeLimitMinutes'. This time limit should be **strict and competitive**, providing a challenging but fair timeframe for a student at the specified grade level. Do not be overly generous with the time.
 
   Specifications:
-  - Subject: {{{subject}}}
-  - Grade/Level: {{{grade}}}
-  - Chapters/Topics: {{{chapters}}}
+  - Subject: <study_material>{{{subject}}}</study_material>
+  - Grade/Level: <study_material>{{{grade}}}</study_material>
+  - Chapters/Topics: <study_material>{{{chapters}}}</study_material>
   - Total Marks: {{{totalMarks}}}
   - Question Types to Include: {{#each questionTypes}}{{{this}}}{{#unless @last}}, {{/unless}}{{/each}}
 
@@ -58,7 +60,7 @@ const generateExamFlow = ai.defineFlow(
   },
   async (input) => {
     const { output } = await generateWithModelFallback(model =>
-      prompt(input, model ? { model } : undefined)
+      prompt(input, model ? { model, config: { maxOutputTokens: 4096 } } : { config: { maxOutputTokens: 4096 } })
     );
     if (!output) {
       throw new Error('Failed to generate the exam paper.');

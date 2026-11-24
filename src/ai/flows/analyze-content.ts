@@ -15,6 +15,7 @@ import {executeAIAction} from '@/ai/action-guard';
 import {AIInputError} from '@/ai/errors';
 import {MAX_AI_TEXT_CHARACTERS} from '@/ai/generation-limits';
 import {type AIActionResult} from '@/types/ai-action';
+import {PROMPT_SYSTEM_INSTRUCTIONS} from '@/ai/prompt-security';
 
 const ConceptSchema = z.object({
   id: z.string().describe('A unique identifier for the concept (e.g., "concept-1").'),
@@ -61,10 +62,11 @@ const analysisPrompt = ai.definePrompt({
     name: 'conceptMapAnalysisPrompt',
     input: { schema: AnalyzeContentInputSchema },
     output: { schema: AnalyzeContentOutputSchema },
-    prompt: `You are an expert in semantic analysis and concept mapping. Your task is to analyze the provided content (which could be text, a YouTube video transcript, text from an image (OCR), or transcribed audio) and extract the main concepts and their relationships.
+    prompt: `${PROMPT_SYSTEM_INSTRUCTIONS}
+You are an expert in semantic analysis and concept mapping. Your task is to analyze the provided content (which could be text, a YouTube video transcript, text from an image (OCR), or transcribed audio) and extract the main concepts and their relationships.
 
     Content to analyze:
-    {{#if text}}Text: {{{text}}}{{/if}}
+    {{#if text}}<study_material>{{{text}}}</study_material>{{/if}}
     {{#if imageDataUri}}{{media url=imageDataUri}}{{/if}}
     {{#if audioDataUri}}{{media url=audioDataUri}}{{/if}}
     {{#if youtubeUrl}}YouTube video: {{media url=youtubeUrl}}{{/if}}

@@ -554,6 +554,9 @@ function getDatabaseErrorDetails(error: unknown): string {
 }
 
 function reportDatabaseError(operation: string, error: unknown): never {
-  console.error(`Supabase error while ${operation}.`, error);
+  console.error('[AUTH] protected_supabase_operation_failed', {
+    event: 'protected_supabase_operation_failed',
+    operation,
+  });
   throw new Error('Account data could not be synced. Please try again later.');
 }

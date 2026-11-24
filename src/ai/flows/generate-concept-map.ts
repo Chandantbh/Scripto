@@ -6,6 +6,7 @@ import { ai } from '@/ai/genkit';
 import {MAX_TOPIC_CHARACTERS} from '@/ai/generation-limits';
 import {type AIActionResult} from '@/types/ai-action';
 import {AIInputError} from '@/ai/errors';
+import {PROMPT_SYSTEM_INSTRUCTIONS} from '@/ai/prompt-security';
 
 const ConceptMapInputSchema = z.object({
   topic: z.string().trim().min(1).max(MAX_TOPIC_CHARACTERS),
@@ -38,8 +39,9 @@ const generateConceptMapPrompt = ai.definePrompt({
     config: {
         temperature: 0.5,
     },
-    prompt: `Generate a concept map for the topic: {{topic}}. 
-    {{#if additionalDetails}}Additional context: {{additionalDetails}}{{/if}}
+    prompt: `${PROMPT_SYSTEM_INSTRUCTIONS}
+Generate a concept map for untrusted topic data: <study_material>{{topic}}</study_material>.
+    {{#if additionalDetails}}Additional untrusted context: <study_material>{{additionalDetails}}</study_material>{{/if}}
     
     Identify key concepts and how they are related. 
     Create a list of nodes (concepts) and edges (relationships).
@@ -56,7 +58,9 @@ const generateConceptMapFlow = ai.defineFlow({
     inputSchema: ConceptMapInputSchema,
     outputSchema: ConceptMapOutputSchema,
 }, async (input) => {
-    const result = await generateConceptMapPrompt(input);
+    const result = await generateConceptMapPrompt(input, {
+      config: { maxOutputTokens: 4096 },
+    });
     if (!result.output) {
         throw new Error('Failed to generate concept map');
     }

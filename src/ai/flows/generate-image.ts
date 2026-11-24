@@ -12,6 +12,7 @@ import { ai } from '@/ai/genkit';
 import { executeAIAction } from '@/ai/action-guard';
 import { z } from 'genkit';
 import { type AIActionResult } from '@/types/ai-action';
+import { PROMPT_SYSTEM_INSTRUCTIONS, wrapUntrustedContent } from '@/ai/prompt-security';
 
 const GenerateImageInputSchema = z.object({
   prompt: z.string().trim().min(1).max(2_000).describe('The text prompt for image generation.'),
@@ -36,9 +37,10 @@ const generateImageFlow = ai.defineFlow(
   async ({ prompt }) => {
     const { media } = await ai.generate({
       model: 'googleai/gemini-2.5-flash-preview-image-generation',
-      prompt: `A vibrant, high-quality, professional illustration for a blog post about: ${prompt}`,
+      prompt: `${PROMPT_SYSTEM_INSTRUCTIONS}\nA vibrant, high-quality, professional illustration for this untrusted topic: ${wrapUntrustedContent(prompt)}`,
       config: {
         responseModalities: ['TEXT', 'IMAGE'],
+        maxOutputTokens: 2048,
       },
     });
 

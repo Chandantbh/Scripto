@@ -19,6 +19,24 @@ export function isAllowedDocumentFile(file: Pick<File, 'name' | 'type' | 'size'>
   return true;
 }
 
+export async function verifyDocumentMagicBytes(file: File): Promise<boolean> {
+  if (file.size <= 0 || file.size > MAX_UPLOAD_BYTES) return false;
+  const bytes = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+  if (file.name.toLowerCase().endsWith('.pdf')) {
+    return file.type === 'application/pdf'
+      && String.fromCharCode(...bytes) === '%PDF';
+  }
+  if (file.name.toLowerCase().endsWith('.docx')) {
+    return file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      && bytes[0] === 0x50 && bytes[1] === 0x4b
+      && bytes[2] === 0x03 && bytes[3] === 0x04;
+  }
+  if (file.name.toLowerCase().endsWith('.txt')) {
+    return file.type === 'text/plain';
+  }
+  return false;
+}
+
 // Set the workerSrc for pdfjs-dist. This is necessary for it to work in a browser environment.
 // We are using a CDN for simplicity.
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -38,6 +56,9 @@ export async function extractTextFromFile(file: File): Promise<string> {
     }
     if (!isAllowedDocumentFile(file)) {
         throw new Error('Unsupported file type. Choose a PDF, DOCX, or TXT file.');
+    }
+    if (!(await verifyDocumentMagicBytes(file))) {
+        throw new Error('The file contents do not match an allowed PDF, DOCX, or TXT document.');
     }
 
     if (file.type === 'application/pdf') {

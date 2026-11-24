@@ -47,6 +47,14 @@ export function resolveNotesTitle({
   return 'Study Notes';
 }
 
+function sanitizePdfText(value: string): string {
+  return value
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/<[^>]*>/g, '')
+    .replace(/\u2028|\u2029/g, '\n')
+    .trim();
+}
+
 function getUploadedFileTitle(fileName?: string): string {
   if (!fileName) return '';
 
@@ -58,8 +66,8 @@ function getUploadedFileTitle(fileName?: string): string {
 }
 
 export function exportNotesPdf({ topic, markdown }: ExportNotesPdfOptions): void {
-  const cleanTopic = topic.trim().slice(0, 200) || 'Study Notes';
-  const cleanMarkdown = markdown.trim();
+  const cleanTopic = sanitizePdfText(topic).slice(0, 200) || 'Study Notes';
+  const cleanMarkdown = sanitizePdfText(markdown).slice(0, 50000);
 
   if (!cleanMarkdown) {
     throw new Error('There are no notes to export.');

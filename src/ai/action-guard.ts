@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { type ZodError, type ZodType, type ZodTypeDef } from 'zod';
+import { auth } from '@clerk/nextjs/server';
 import { AIInputError } from '@/ai/errors';
 import { MAX_AI_TEXT_CHARACTERS, MAX_TOPIC_CHARACTERS } from '@/ai/generation-limits';
 import { checkAIRateLimit } from '@/lib/rate-limit';
@@ -9,6 +10,8 @@ import { type AIActionResult } from '@/types/ai-action';
 
 const MAX_OTHER_FIELD_CHARACTERS = 5_000;
 const MAX_TOTAL_TEXT_CHARACTERS = 50_000;
+const GUEST_MAX_TEXT_CHARACTERS = 8_000;
+const SIGNED_IN_MAX_TEXT_CHARACTERS = 40_000;
 const MAX_ARRAY_ITEMS = 100;
 const MAX_INLINE_MEDIA_BYTES = 512 * 1024;
 const TEMPORARY_ERROR_MESSAGE =
@@ -20,6 +23,8 @@ export async function executeAIAction<ParsedInput, Output, SchemaInput = ParsedI
   schema: ZodType<ParsedInput, ZodTypeDef, SchemaInput>,
   action: (validatedInput: ParsedInput) => Promise<Output>
 ): Promise<AIActionResult<Output>> {
+  const { userId } = await auth();
+  const textLimit = userId ? SIGNED_IN_MAX_TEXT_CHARACTERS : GUEST_MAX_TEXT_CHARACTERS;
   const parsedInput = schema.safeParse(input);
   if (!parsedInput.success) {
     return {
@@ -32,7 +37,7 @@ export async function executeAIAction<ParsedInput, Output, SchemaInput = ParsedI
     };
   }
 
-  const inputError = validateAIInput(parsedInput.data);
+  const inputError = validateAIInput(parsedInput.data, textLimit);
   if (inputError) {
     return {
       ok: false,
@@ -43,12 +48,18 @@ export async function executeAIAction<ParsedInput, Output, SchemaInput = ParsedI
   try {
     const limit = await checkAIRateLimit();
     if (!limit.allowed) {
+      console.error('[SECURITY] rate_limit_hit', {
+        operation,
+        authenticated: Boolean(userId),
+      });
       return {
         ok: false,
         error: {
           status: 429,
           code: 'RATE_LIMITED',
-          message: 'You’ve reached the AI request limit (15 requests per 10 minutes). Please try again shortly.',
+          message: userId
+            ? 'You’ve reached the AI request limit (15 requests per 10 minutes). Please try again shortly.'
+            : 'Guest AI limit reached (3 generations per hour). Please sign in or try again later.',
           retryAfterSeconds: limit.retryAfterSeconds,
         },
       };
@@ -59,6 +70,11 @@ export async function executeAIAction<ParsedInput, Output, SchemaInput = ParsedI
       data: await action(parsedInput.data),
     };
   } catch (error) {
+    console.error('[AUTH] action_guard_error', {
+      event: 'action_guard_error',
+      operation,
+      authenticated: Boolean(userId),
+    });
     if (error instanceof AIInputError) {
       return {
         ok: false,
@@ -115,7 +131,7 @@ function getValidationMessage(error: ZodError): string {
   return 'Please check your input and try again.';
 }
 
-function validateAIInput(input: unknown): string | undefined {
+function validateAIInput(input: unknown, textLimit = MAX_AI_TEXT_CHARACTERS): string | undefined {
   let totalTextCharacters = 0;
 
   const visit = (value: unknown, fieldName = ''): string | undefined => {
@@ -137,13 +153,13 @@ function validateAIInput(input: unknown): string | undefined {
         return `Topic and subject names must be ${MAX_TOPIC_CHARACTERS} characters or fewer.`;
       }
 
-      if ((field === 'text' || field === 'content') && value.length > MAX_AI_TEXT_CHARACTERS) {
-        return `Text must be ${MAX_AI_TEXT_CHARACTERS.toLocaleString()} characters or fewer.`;
+      if ((field === 'text' || field === 'content') && value.length > textLimit) {
+        return `Text must be ${textLimit.toLocaleString()} characters or fewer.`;
       }
 
       const maxFieldLength = field === 'chapters' || field === 'additionaldetails'
         ? MAX_OTHER_FIELD_CHARACTERS
-        : MAX_AI_TEXT_CHARACTERS;
+        : textLimit;
       if (value.length > maxFieldLength) {
         return `Each input field must be ${maxFieldLength.toLocaleString()} characters or fewer.`;
       }

@@ -3,6 +3,8 @@ import { headers } from 'next/headers';
 
 export const AI_RATE_LIMIT_REQUESTS = 15;
 export const AI_RATE_LIMIT_WINDOW_MS = 10 * 60_000;
+export const GUEST_AI_RATE_LIMIT_REQUESTS = 3;
+export const GUEST_AI_RATE_LIMIT_WINDOW_MS = 60 * 60_000;
 
 type RateWindow = 'ai';
 
@@ -44,6 +46,10 @@ export class SlidingWindowRateLimiter {
 }
 
 const aiRateLimiter = new SlidingWindowRateLimiter();
+const guestAiRateLimiter = new SlidingWindowRateLimiter(
+  GUEST_AI_RATE_LIMIT_REQUESTS,
+  GUEST_AI_RATE_LIMIT_WINDOW_MS,
+);
 
 export async function checkAIRateLimit(now = Date.now()): Promise<RateLimitDecision> {
   const { userId } = await auth();
@@ -52,7 +58,9 @@ export async function checkAIRateLimit(now = Date.now()): Promise<RateLimitDecis
     ? `user:${userId}`
     : `ip:${getClientIp(requestHeaders) ?? 'unknown'}`;
 
-  const decision = aiRateLimiter.check(identity, now);
+  const decision = userId
+    ? aiRateLimiter.check(identity, now)
+    : guestAiRateLimiter.check(identity, now);
   if (!decision.allowed) {
     return { allowed: false, window: 'ai', retryAfterSeconds: decision.retryAfterSeconds };
   }

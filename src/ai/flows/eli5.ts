@@ -16,6 +16,7 @@ import {AIInputError} from '@/ai/errors';
 import {getYouTubeSource} from '@/services/youtube';
 import {z} from 'genkit';
 import {type AIActionResult} from '@/types/ai-action';
+import {PROMPT_SYSTEM_INSTRUCTIONS} from '@/ai/prompt-security';
 
 const ExplainLikeImFiveInputSchema = z.object({
   text: z.string().trim().min(1).max(MAX_AI_TEXT_CHARACTERS).optional().describe('The text content to explain.'),
@@ -47,14 +48,15 @@ const generateContentPrompt = ai.definePrompt({
     name: 'eli5Prompt',
     input: { schema: ExplainLikeImFiveInputSchema },
     output: { schema: ExplainLikeImFiveOutputSchema },
-    prompt: `You are an expert at explaining complex topics in a simple and easy-to-understand way.
+    prompt: `${PROMPT_SYSTEM_INSTRUCTIONS}
+You are an expert at explaining complex topics in a simple and easy-to-understand way.
     
     Your task is to analyze the provided content and:
     1. Explain it based on the requested difficulty level. Use simple words, short sentences, and relatable analogies for 'easy'. For 'medium', assume a high school level of understanding. For 'hard', assume a college level. Format the output as markdown.
     2. Provide a 1-2 word hint for an image search that would create a relevant illustration for the topic.
 
     Content to Explain:
-    {{#if text}}Text: {{{text}}}{{/if}}
+    {{#if text}}<study_material>{{{text}}}</study_material>{{/if}}
     {{#if imageDataUri}}{{media url=imageDataUri}}{{/if}}
     {{#if youtubeUrl}}YouTube video: {{media url=youtubeUrl}}{{/if}}
 
@@ -93,7 +95,12 @@ const eli5Flow = ai.defineFlow(
     }
 
     const { output } = await generateWithModelFallback(model =>
-      generateContentPrompt(processedInput, model ? {model} : undefined)
+      generateContentPrompt(
+        processedInput,
+        model
+          ? { model, config: { maxOutputTokens: 2048 } }
+          : { config: { maxOutputTokens: 2048 } }
+      )
     );
     
     if (!output) {

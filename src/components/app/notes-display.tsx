@@ -4,6 +4,16 @@ import React, { type FC, useEffect, useRef, useState } from 'react';
 import * as ScrollArea from '@radix-ui/react-scroll-area'
 import { marked, type Tokens } from 'marked';
 import Slugger from 'github-slugger';
+import DOMPurify from 'dompurify';
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 
 interface NotesDisplayProps {
   notes: string;
@@ -19,9 +29,10 @@ const NotesDisplay: FC<NotesDisplayProps> = ({ notes, onPlayAudio, isSynthesizin
   useEffect(() => {
     const slugger = new Slugger();
     const renderer = new marked.Renderer();
+    renderer.html = () => '';
 
     renderer.heading = ({ tokens, depth }: Tokens.Heading) => {
-      const text = tokens.map(token => token.raw).join('');
+      const text = escapeHtml(tokens.map(token => token.raw).join('').replace(/<[^>]*>/g, ''));
       // Important: Use the same slugger instance for all headings in a single render
       const id = slugger.slug(text);
 
@@ -48,8 +59,16 @@ const NotesDisplay: FC<NotesDisplayProps> = ({ notes, onPlayAudio, isSynthesizin
 
     const processMarkdown = async () => {
       if (notes) {
-        const renderedHtml = await marked(notes, { renderer });
-        setHtml(renderedHtml);
+        const renderedHtml = await marked(notes, {
+          renderer,
+          breaks: false,
+          gfm: true,
+          async: true,
+        });
+        setHtml(DOMPurify.sanitize(renderedHtml, {
+          ALLOWED_TAGS: ['h1','h2','h3','h4','h5','h6','p','br','strong','em','b','i','ul','ol','li','blockquote','code','pre','a','div','button','span','svg','path','polygon'],
+          ALLOWED_ATTR: ['id','class','title','data-speech-text','data-speech-id','href','xmlns','width','height','viewbox','fill','stroke','stroke-width','points','d','disabled'],
+        }));
       } else {
         setHtml('');
       }

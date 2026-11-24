@@ -12,10 +12,6 @@ let client: TranscriptClient | null = null;
 
 export function normalizeYouTubeUrl(url: string): string | null {
   const value = url.trim();
-  if (/^[A-Za-z0-9_-]{11}$/.test(value)) {
-    return `https://www.youtube.com/watch?v=${value}`;
-  }
-
   let parsed: URL;
   try {
     parsed = new URL(value);
@@ -28,6 +24,8 @@ export function normalizeYouTubeUrl(url: string): string | null {
   }
 
   const hostname = parsed.hostname.toLowerCase();
+  const allowedHosts = new Set(['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be']);
+  if (!allowedHosts.has(hostname)) return null;
   let videoId: string | null = null;
 
   if (hostname === 'youtu.be') {

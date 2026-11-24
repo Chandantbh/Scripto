@@ -15,6 +15,7 @@ import {
   type EvaluateExamOutput,
 } from '@/ai/schemas/evaluation-schemas';
 import { type AIActionResult } from '@/types/ai-action';
+import { PROMPT_SYSTEM_INSTRUCTIONS } from '@/ai/prompt-security';
 
 export async function evaluateExam(input: EvaluateExamInput): Promise<AIActionResult<EvaluateExamOutput>> {
   return executeAIAction('evaluateExam', input, EvaluateExamInputSchema, evaluateExamFlow);
@@ -35,7 +36,8 @@ const prompt = ai.definePrompt({
   name: 'evaluateExamPrompt',
   input: { schema: EvaluateExamInputSchema },
   output: { schema: EvaluateExamOutputSchema },
-  prompt: `You are an expert examiner AI. Your task is to evaluate a user's submitted answers for an exam and provide constructive feedback.
+  prompt: `${PROMPT_SYSTEM_INSTRUCTIONS}
+You are an expert examiner AI. Your task is to evaluate a user's submitted answers for an exam and provide constructive feedback.
 
   Here is the exam content and the user's answers. Note that questions are 0-indexed.
 
@@ -74,7 +76,7 @@ const evaluateExamFlow = ai.defineFlow(
   },
   async (input) => {
     const { output } = await generateWithModelFallback(model =>
-      prompt(input, model ? { model } : undefined)
+      prompt(input, model ? { model, config: { maxOutputTokens: 4096 } } : { config: { maxOutputTokens: 4096 } })
     );
     if (!output) {
       throw new Error('Failed to evaluate the exam.');

@@ -16,6 +16,7 @@ import {MAX_AI_TEXT_CHARACTERS} from '@/ai/generation-limits';
 import { getYouTubeSource } from '@/services/youtube';
 import {z} from 'genkit';
 import {type AIActionResult} from '@/types/ai-action';
+import {PROMPT_SYSTEM_INSTRUCTIONS} from '@/ai/prompt-security';
 
 const GenerateQuizInputSchema = z.object({
   text: z.string().trim().min(1).max(MAX_AI_TEXT_CHARACTERS).optional().describe('The text to generate a quiz from.'),
@@ -45,8 +46,9 @@ const prompt = ai.definePrompt({
   name: 'generateQuizPrompt',
   input: { schema: z.object({ content: z.string().optional(), youtubeUrl: z.string().optional(), questionCount: z.number().optional() }) },
   output: {schema: GenerateQuizOutputSchema},
-  prompt: `You are a quiz generator. Generate exactly {{{questionCount}}} questions based on the following content.
-  {{#if content}}Content: {{{content}}}{{/if}}
+  prompt: `${PROMPT_SYSTEM_INSTRUCTIONS}
+  You are a quiz generator. Generate exactly {{{questionCount}}} questions based on the following content.
+  {{#if content}}<study_material>{{{content}}}</study_material>{{/if}}
   {{#if youtubeUrl}}YouTube video: {{media url=youtubeUrl}}{{/if}}
   The quiz should include multiple choice questions with 4 options and a correct answer. For each question, also provide a single, relevant emoji.`,
 });
@@ -76,7 +78,7 @@ const generateQuizFlow = ai.defineFlow(
         content: content || undefined,
         youtubeUrl,
         questionCount: input.questionCount ?? 10,
-      }, model ? {model} : undefined)
+      }, model ? { model, config: { maxOutputTokens: 4096 } } : { config: { maxOutputTokens: 4096 } })
     );
     if (!output) {
       throw new Error('Failed to generate the quiz.');

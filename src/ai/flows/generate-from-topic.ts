@@ -14,6 +14,7 @@ import {executeAIAction} from '@/ai/action-guard';
 import {MAX_FLASHCARDS, MAX_TOPIC_CHARACTERS} from '@/ai/generation-limits';
 import {z} from 'genkit';
 import {type AIActionResult} from '@/types/ai-action';
+import {PROMPT_SYSTEM_INSTRUCTIONS, wrapUntrustedContent} from '@/ai/prompt-security';
 
 const GenerateFromTopicInputSchema = z.object({
   topic: z.string().trim().min(1).max(
@@ -57,7 +58,8 @@ const generateContentPrompt = ai.definePrompt({
   name: 'generateFromTopicContentPrompt',
   input: {schema: GenerateFromTopicInputSchema},
   output: {schema: GenerateFromTopicOutputSchema},
-  prompt: `You are an expert educator and content creator. Your task is to generate a comprehensive set of study materials based on the provided topic.
+  prompt: `${PROMPT_SYSTEM_INSTRUCTIONS}
+You are an expert educator and content creator. Your task is to generate a comprehensive set of study materials based on the provided topic.
 
 The study materials should include:
 1.  **Notes**: A summary of the key concepts, definitions, and important points about the topic. Format this as {{{noteFormat}}} markdown (use a Concise summary, Detailed sections, or Cornell Cues/Notes/Summary).
@@ -65,7 +67,7 @@ The study materials should include:
 3.  **Flashcards**: A set of 5-10 flashcards. For each flashcard, provide a clear "question", a concise "answer", a single, valid "emoji" character, and a "color" as a hex code.
 4.  **Image Hint**: A 1-2 word hint for a web search for a cover image for these study materials. For example, for "The basics of photosynthesis" you could provide "photosynthesis basics".
 
-Topic: {{{topic}}}
+Untrusted topic data: <study_material>{{{topic}}}</study_material>
 
 Please provide the output in a single JSON object with the keys "notes", "quiz", "flashcards", and "imageHint".
 `,
@@ -84,7 +86,9 @@ const generateFromTopicFlow = ai.defineFlow(
         ...input,
         noteFormat: input.noteFormat ?? 'Detailed',
         quizLength: input.quizLength ?? 10,
-      }, model ? {model} : undefined)
+      }, model
+        ? { model, config: { maxOutputTokens: 4096 } }
+        : { config: { maxOutputTokens: 4096 } })
     );
 
     if (!output) {

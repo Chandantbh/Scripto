@@ -20,6 +20,7 @@ import {
 import { getYouTubeSource } from '@/services/youtube';
 import {z} from 'genkit';
 import {type AIActionResult} from '@/types/ai-action';
+import {PROMPT_SYSTEM_INSTRUCTIONS} from '@/ai/prompt-security';
 
 const GenerateFlashcardsInputSchema = z.object({
   text: z.string().trim().min(1).max(MAX_FLASHCARD_INPUT_CHARACTERS).optional().describe('The text to generate flashcards from.'),
@@ -50,7 +51,8 @@ const prompt = ai.definePrompt({
   name: 'generateFlashcardsPrompt',
   input: {schema: z.object({ content: z.string().optional(), youtubeUrl: z.string().optional() }) },
   output: {schema: GenerateFlashcardsOutputSchema},
-  prompt: `You are an expert at creating flashcards for students.
+  prompt: `${PROMPT_SYSTEM_INSTRUCTIONS}
+  You are an expert at creating flashcards for students.
 
   Given the following content, generate a set of flashcards. For each flashcard, provide:
   1. A "question".
@@ -59,7 +61,7 @@ const prompt = ai.definePrompt({
   4. A "color" as a hex code that is visually appealing for a background. Ensure good contrast for dark text.
   Generate between 5 and ${MAX_FLASHCARDS} flashcards, using fewer only if the content is very short. Keep each answer concise.
 
-  {{#if content}}Content: {{{content}}}{{/if}}
+  {{#if content}}<study_material>{{{content}}}</study_material>{{/if}}
   {{#if youtubeUrl}}YouTube video: {{media url=youtubeUrl}}{{/if}}
 
   Return only the structured flashcards object requested by the output schema.
