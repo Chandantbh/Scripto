@@ -1,7 +1,7 @@
 # Scripto
 
-[![CI](https://github.com/Chandantbh/Scripto/actions/workflows/ci.yml/badge.svg)](https://github.com/Chandantbh/Scripto/actions/workflows/ci.yml)
-[![Live Demo](https://img.shields.io/badge/Live_Demo-scripto--gules.vercel.app-2563EB?style=flat)](https://scripto-gules.vercel.app)
+![CI](https://github.com/Chandantbh/Scripto/actions/workflows/ci.yml/badge.svg)
+[Live Demo](https://scripto-gules.vercel.app)
 
 > **Live demo:** [https://scripto-gules.vercel.app](https://scripto-gules.vercel.app)
 
@@ -10,9 +10,9 @@ An AI-powered active recall study workspace that turns text, topics, YouTube tra
 ## Screenshots
 
 <!--
-![Get Started](./docs/screenshots/get-started.png)
-![Workspace](./docs/screenshots/workspace.png)
-![Study Studio](./docs/screenshots/study-studio.png)
+![Get Started](./public/screenshots/get-started.png)
+![Workspace](./public/screenshots/workspace.png)
+![Study Studio](./public/screenshots/study-studio.png)
 -->
 
 ## Core Features
@@ -78,24 +78,21 @@ Export study output as PDF, Markdown, or Anki-compatible CSV flashcards.
 - React Flow
 - jsPDF
 
-## How It Works & Architecture
+## System Architecture
 
-Scripto follows a server-validated, account-scoped pipeline: users ingest supported study material, the app verifies file types and size/character limits, server actions enforce Clerk identity and sliding-window rate limits, and Genkit/Gemini produce typed structured results for the Study Studio.
+Scripto uses server-validated, account-scoped request handling: the browser submits study sources to Next.js Server Actions or API Routes, where Clerk authentication, Zod validation, and Upstash/in-memory sliding-window rate limits are enforced before structured AI generation.
 
 ```mermaid
 flowchart LR
-    A[Study Source<br/>Text or Topic] --> V[Server Validation]
-    B[YouTube Transcript] --> V
-    C[PDF or DOCX<br/>Magic-Byte Validation] --> V
-    V --> D[Clerk Auth & Guest Identity]
-    D --> E[Sliding-Window Rate Limiter<br/>Upstash Redis or In-Memory]
-    E --> F[Genkit + Gemini Structured AI Flows]
-    F --> G[2-Pane Study Studio]
-    G --> H[Notes, Quiz, Flashcards, Exam, ELI5, Concept Map]
-    G --> I[SM-2 Review Scheduling]
-    G --> J[PDF, Markdown & Anki Exports]
-    G --> K[Supabase User-Scoped Persistence]
-    K --> L[Clerk user_id IDOR Protection]
+    Browser[Browser — Next.js App Router]
+    Server[Next.js Server Actions / API Routes<br/>Clerk Auth + Zod + Upstash Redis / In-Memory Rate Limiter]
+    Supabase[Supabase Postgres + RLS]
+    Gemini[Google Genkit + Gemini AI]
+    Browser --> Server
+    Server --> Supabase
+    Server --> Gemini
+    Supabase --> Browser
+    Gemini --> Browser
 ```
 
 ## Local Setup
