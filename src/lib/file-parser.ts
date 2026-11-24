@@ -5,6 +5,15 @@ import * as pdfjs from 'pdfjs-dist';
 import mammoth from 'mammoth';
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+export const MAX_PDF_PAGES = 30;
+export const MAX_EXTRACTED_CHARACTERS = 50_000;
+
+export class DocumentLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DocumentLimitError';
+  }
+}
 export const ALLOWED_DOCUMENT_MIME_TYPES = new Set([
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -65,11 +74,12 @@ export async function extractTextFromFile(file: File): Promise<string> {
         return extractTextFromPdf(file);
     } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || file.name.endsWith('.docx')) {
         return extractTextFromDocx(file);
-    } else if (file.type === 'application/json') {
-        // For JSON, we just return the raw text. The caller will parse it.
-        return file.text();
     } else if (file.type.startsWith('text/')) {
-        return file.text();
+        const text = await file.text();
+        if (text.length > MAX_EXTRACTED_CHARACTERS) {
+          throw new DocumentLimitError('File must be a PDF or DOCX under 10 MB (max 30 pages).');
+        }
+        return text;
     } else {
         throw new Error(`Unsupported file type: ${file.type}`);
     }
@@ -89,6 +99,9 @@ async function extractTextFromPdf(file: File): Promise<string> {
         if (pdf.numPages === 0) {
             throw new Error("The PDF file appears to be empty.");
         }
+        if (pdf.numPages > MAX_PDF_PAGES) {
+            throw new DocumentLimitError('File must be a PDF or DOCX under 10 MB (max 30 pages).');
+        }
 
         for (let i = 1; i <= pdf.numPages; i++) {
             const page = await pdf.getPage(i);
@@ -102,13 +115,20 @@ async function extractTextFromPdf(file: File): Promise<string> {
                 .join(' ');
             
             text += pageText;
+            if (text.length > MAX_EXTRACTED_CHARACTERS) {
+                throw new DocumentLimitError('The document exceeds 50,000 extracted characters. Please use a shorter PDF or DOCX.');
+            }
             if (i < pdf.numPages) {
             text += '\n\n'; // Add page breaks
             }
         }
         
-        return text;
+        if (text.length > MAX_EXTRACTED_CHARACTERS) {
+            throw new DocumentLimitError('The document exceeds 50,000 extracted characters. Please use a shorter PDF or DOCX.');
+        }
+        return text.slice(0, MAX_EXTRACTED_CHARACTERS);
     } catch (error) {
+        if (error instanceof DocumentLimitError) throw error;
         console.error("PDF Parsing Error:", error);
         throw new Error("Failed to parse PDF. Please ensure the file is not corrupted.");
     }
@@ -122,5 +142,8 @@ async function extractTextFromPdf(file: File): Promise<string> {
 async function extractTextFromDocx(file: File): Promise<string> {
     const arrayBuffer = await file.arrayBuffer();
     const result = await mammoth.extractRawText({ arrayBuffer });
+    if (result.value.length > MAX_EXTRACTED_CHARACTERS) {
+        throw new DocumentLimitError('The document exceeds 50,000 extracted characters. Please use a shorter PDF or DOCX.');
+    }
     return result.value;
 }
