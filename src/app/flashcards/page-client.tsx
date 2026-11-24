@@ -55,6 +55,11 @@ export default function FlashcardsPage() {
   const generationInProgressRef = useRef(false);
 
   useEffect(() => {
+    setGeneratedContent(null);
+    setComposerOpen(true);
+  }, []);
+
+  useEffect(() => {
     const mode = searchParams.get('mode');
     if (mode === 'topic') setInputMode('topic');
     if (mode === 'text') setInputMode('text');
@@ -199,19 +204,24 @@ export default function FlashcardsPage() {
     try {
        let result: GeneratedContent;
 
-        if (inputMode === 'topic') {
-            if (!topic.trim()) {
+        const shortTextTopic = inputMode === 'text' && text.trim().length > 0 && text.trim().length < 100
+          ? text.trim()
+          : null;
+
+        if (inputMode === 'topic' || shortTextTopic) {
+            const resolvedTopic = shortTextTopic ?? topic.trim();
+            if (!resolvedTopic) {
                 setGenerationError('Enter a topic to generate flashcards.');
                 setIsLoading(false);
                 return;
             }
-            const topicResult = unwrapAIActionResult(await generateFromTopic({ topic }));
+            const topicResult = unwrapAIActionResult(await generateFromTopic({ topic: resolvedTopic }));
             result = {
                 flashcards: topicResult.flashcards,
                 notes: topicResult.notes,
                 quiz: topicResult.quiz,
                 imageHint: topicResult.imageHint,
-                sourceTopic: topic,
+                sourceTopic: resolvedTopic,
             };
         } else {
             let input: GenerateFlashcardsInput = {};

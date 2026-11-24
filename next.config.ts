@@ -15,12 +15,12 @@ const nextConfig = {
             value:
               "default-src 'self'; " +
               "base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; " +
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.clerk.accounts.dev https://challenges.cloudflare.com; " +
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com; " +
               "style-src 'self' 'unsafe-inline'; " +
-              "img-src 'self' data: blob: https://images.unsplash.com https://placehold.co https://img.clerk.com; " +
+              "img-src 'self' data: blob: https://img.clerk.com https://images.unsplash.com https://placehold.co; " +
               "font-src 'self' data:; " +
-              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.clerk.accounts.dev https://clerk-telemetry.com https://api.clerk.com https://generativelanguage.googleapis.com; " +
-              "frame-src 'self' https://*.clerk.accounts.dev https://challenges.cloudflare.com; " +
+              "connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://*.supabase.co wss://*.supabase.co https://generativelanguage.googleapis.com https://clerk-telemetry.com https://api.clerk.com; " +
+              "frame-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com; " +
               "worker-src 'self' blob:",
           },
         ],

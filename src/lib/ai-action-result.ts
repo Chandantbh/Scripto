@@ -30,6 +30,9 @@ export interface FriendlyAIError {
 export function classifyAIError(error: unknown): FriendlyAIError {
   if (error instanceof AIActionFailure) {
     const raw = `${error.message} ${error.code}`.toLowerCase();
+    if (error.status === 400 || error.code === 'INVALID_INPUT') {
+      return { message: error.message, kind: 'generic', status: error.status, code: error.code };
+    }
     if (error.status === 429 || error.code === 'RATE_LIMITED' || raw.includes('429') || raw.includes('cooldown')) {
       return { message: "You've hit the generation cooldown—wait a minute and try again.", kind: 'rate-limit', status: error.status, code: error.code };
     }

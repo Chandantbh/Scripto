@@ -49,7 +49,7 @@ export function getGuestGenerationCount(): number {
 export function consumeGuestGeneration(): 'allowed' | 'limited' {
   if (typeof window === 'undefined') return 'allowed';
   const count = getGuestGenerationCount();
-  if (count >= 2) return 'limited';
+  if (count >= 3) return 'limited';
   window.localStorage.setItem(GUEST_GENERATION_KEY, String(count + 1));
   return 'allowed';
 }
