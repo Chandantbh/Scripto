@@ -9,8 +9,7 @@
  * - GenerateFlashcardsOutput - The return type for the generateFlashcards function.
  */
 
-import {ai} from '@/ai/genkit';
-import {generateWithModelFallback} from '@/ai/model-retry';
+import {ai, generateWithFallback} from '@/ai/genkit';
 import {executeAIAction} from '@/ai/action-guard';
 import {AIInputError} from '@/ai/errors';
 import {
@@ -88,7 +87,7 @@ const generateFlashcardsFlow = ai.defineFlow(
       throw new AIInputError('No usable content was found. Please check the source and try again.');
     }
 
-    const {output} = await generateWithModelFallback(model =>
+    const {output} = await generateWithFallback(model =>
       prompt(
         { content: content || undefined, youtubeUrl },
         {

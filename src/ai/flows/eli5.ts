@@ -8,8 +8,7 @@
  * - ExplainLikeImFiveOutput - The return type for the function.
  */
 
-import {ai} from '@/ai/genkit';
-import {generateWithModelFallback} from '@/ai/model-retry';
+import {ai, generateWithFallback} from '@/ai/genkit';
 import {executeAIAction} from '@/ai/action-guard';
 import {MAX_AI_TEXT_CHARACTERS} from '@/ai/generation-limits';
 import {AIInputError} from '@/ai/errors';
@@ -94,7 +93,7 @@ const eli5Flow = ai.defineFlow(
       throw new AIInputError('No usable content was found. Please check the source and try again.');
     }
 
-    const { output } = await generateWithModelFallback(model =>
+    const { output } = await generateWithFallback(model =>
       generateContentPrompt(
         processedInput,
         model

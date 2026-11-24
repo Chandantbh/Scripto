@@ -71,19 +71,22 @@ test('retries recognized Google API network failures', async () => {
   assert.deepEqual(models, [MODEL_FALLBACKS[0], MODEL_FALLBACKS[1]]);
 });
 
-test('does not retry or fall back for non-transient HTTP errors', async () => {
+test('continues through the fallback chain for any model error', async () => {
   for (const status of [400, 401, 403]) {
-    let calls = 0;
-
-    await assert.rejects(
-      generateWithModelFallback(async () => {
-        calls++;
+    const models: string[] = [];
+    const result = await generateWithModelFallback(
+      async model => {
+        models.push(model);
+        if (model === MODEL_FALLBACKS[0]) {
         throw Object.assign(new Error('Invalid request'), { status });
-      }),
-      /Invalid request/
+        }
+        return {ok: true};
+      },
+      async () => {}
     );
 
-    assert.equal(calls, 1);
+    assert.deepEqual(result, {ok: true});
+    assert.deepEqual(models, [MODEL_FALLBACKS[0], MODEL_FALLBACKS[1]]);
   }
 });
 

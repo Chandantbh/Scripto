@@ -2,7 +2,7 @@ import 'server-only';
 
 import { type ZodError, type ZodType, type ZodTypeDef } from 'zod';
 import { auth } from '@clerk/nextjs/server';
-import { AIInputError, formatUserErrorMessage } from '@/ai/errors';
+import { AIInputError, formatUserErrorMessage, UPSTASH_RATE_LIMIT_MESSAGE } from '@/ai/errors';
 import { MAX_AI_TEXT_CHARACTERS, MAX_TOPIC_CHARACTERS } from '@/ai/generation-limits';
 import { checkAIRateLimit } from '@/lib/rate-limit';
 import { normalizeYouTubeUrl } from '@/services/youtube';
@@ -58,9 +58,11 @@ export async function executeAIAction<ParsedInput, Output, SchemaInput = ParsedI
         error: {
           status: 429,
           code: 'RATE_LIMITED',
-          message: userId
-            ? 'You’ve reached the AI request limit (15 requests per 10 minutes). Please try again shortly.'
-            : 'Guest AI limit reached (3 generations per hour). Please sign in or try again later.',
+          message: limit.provider === 'upstash'
+            ? UPSTASH_RATE_LIMIT_MESSAGE
+            : userId
+              ? 'You’ve reached the AI request limit (15 requests per 10 minutes). Please try again shortly.'
+              : 'Guest AI limit reached (3 generations per hour). Please sign in or try again later.',
           retryAfterSeconds: limit.retryAfterSeconds,
         },
       };

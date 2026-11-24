@@ -5,8 +5,7 @@
  * - evaluateExam - A function that handles the exam evaluation process.
  */
 
-import { ai } from '@/ai/genkit';
-import { generateWithModelFallback } from '@/ai/model-retry';
+import { ai, generateWithFallback } from '@/ai/genkit';
 import { executeAIAction } from '@/ai/action-guard';
 import {
   EvaluateExamInputSchema,
@@ -75,7 +74,7 @@ const evaluateExamFlow = ai.defineFlow(
     outputSchema: EvaluateExamOutputSchema,
   },
   async (input) => {
-    const { output } = await generateWithModelFallback(model =>
+    const { output } = await generateWithFallback(model =>
       prompt(input, model ? { model, config: { maxOutputTokens: 4096 } } : { config: { maxOutputTokens: 4096 } })
     );
     if (!output) {

@@ -1,3 +1,6 @@
+export const UPSTASH_RATE_LIMIT_MESSAGE =
+  "You're generating too fast — please wait 30 seconds and try again.";
+
 export class AIInputError extends Error {
   constructor(message: string) {
     super(message);

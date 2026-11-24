@@ -8,8 +8,7 @@
  * - GenerateQuizOutput - The return type for the generateQuiz function.
  */
 
-import {ai} from '@/ai/genkit';
-import {generateWithModelFallback, MODEL_FALLBACKS} from '@/ai/model-retry';
+import {ai, generateWithFallback} from '@/ai/genkit';
 import {executeAIAction} from '@/ai/action-guard';
 import {AIInputError} from '@/ai/errors';
 import {MAX_AI_TEXT_CHARACTERS} from '@/ai/generation-limits';
@@ -70,21 +69,12 @@ const generateQuizFlow = ai.defineFlow(
         youtubeUrl,
         questionCount: input.questionCount ?? 10,
     };
-    try {
-      const { output } = await generateWithModelFallback(model =>
-        prompt(promptInput, model ? { model, config: { maxOutputTokens: 4096 } } : { config: { maxOutputTokens: 4096 } })
-      );
-      return GenerateQuizOutputSchema.parse(output);
-    } catch (firstError) {
+    return generateWithFallback(async model => {
       const { output } = await prompt(promptInput, {
-        model: MODEL_FALLBACKS[1],
+        model,
         config: { maxOutputTokens: 4096 },
       });
-      try {
-        return GenerateQuizOutputSchema.parse(output);
-      } catch {
-        throw new Error('The quiz generator returned invalid questions after one fallback retry.', { cause: firstError });
-      }
-    }
+      return GenerateQuizOutputSchema.parse(output);
+    });
   }
 );

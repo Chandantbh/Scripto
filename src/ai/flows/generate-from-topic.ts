@@ -8,8 +8,7 @@
  * - GenerateFromTopicOutput - The return type for the generateFromTopic function.
  */
 
-import {ai} from '@/ai/genkit';
-import {generateWithModelFallback, MODEL_FALLBACKS} from '@/ai/model-retry';
+import {ai, generateWithFallback} from '@/ai/genkit';
 import {executeAIAction} from '@/ai/action-guard';
 import {MAX_FLASHCARDS, MAX_TOPIC_CHARACTERS} from '@/ai/generation-limits';
 import {z} from 'genkit';
@@ -80,25 +79,13 @@ const generateFromTopicFlow = ai.defineFlow(
         noteFormat: input.noteFormat ?? 'Detailed',
         quizLength: input.quizLength ?? 10,
     };
-    let output: GenerateFromTopicOutput;
-    try {
-      const generated = await generateWithModelFallback(model =>
-        generateContentPrompt(promptInput, model
-          ? { model, config: { maxOutputTokens: 2048 } }
-          : { config: { maxOutputTokens: 2048 } })
-      );
-      output = GenerateFromTopicOutputSchema.parse(generated.output);
-    } catch (firstError) {
-      try {
-        const fallback = await generateContentPrompt(promptInput, {
-          model: MODEL_FALLBACKS[1],
-          config: { maxOutputTokens: 2048 },
-        });
-        output = GenerateFromTopicOutputSchema.parse(fallback.output);
-      } catch {
-        throw new Error('The topic generator returned invalid quiz questions after one fallback retry.', { cause: firstError });
-      }
-    }
+    const output = await generateWithFallback(async model => {
+      const generated = await generateContentPrompt(promptInput, {
+        model,
+        config: { maxOutputTokens: 2048 },
+      });
+      return GenerateFromTopicOutputSchema.parse(generated.output);
+    });
 
     const strictQuestions = QuizQuestionsSchema.safeParse(output.quiz.questions);
     if (!strictQuestions.success) {

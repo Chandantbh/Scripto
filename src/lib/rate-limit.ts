@@ -14,6 +14,7 @@ type RateLimitDecision =
       allowed: false;
       window: RateWindow;
       retryAfterSeconds: number;
+      provider: 'upstash' | 'memory';
     };
 
 export class SlidingWindowRateLimiter {
@@ -131,7 +132,12 @@ export async function checkAIRateLimit(now = Date.now()): Promise<RateLimitDecis
       ? aiRateLimiter.check(identity, now)
       : guestAiRateLimiter.check(identity, now);
   if (!decision.allowed) {
-    return { allowed: false, window: 'ai', retryAfterSeconds: decision.retryAfterSeconds };
+    return {
+      allowed: false,
+      window: 'ai',
+      retryAfterSeconds: decision.retryAfterSeconds,
+      provider: distributedDecision?.provider ?? 'memory',
+    };
   }
   return { allowed: true };
 }

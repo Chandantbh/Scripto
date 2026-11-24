@@ -5,8 +5,7 @@
  * - generateExam - A function that handles the exam generation process.
  */
 
-import { ai } from '@/ai/genkit';
-import { generateWithModelFallback } from '@/ai/model-retry';
+import { ai, generateWithFallback } from '@/ai/genkit';
 import { executeAIAction } from '@/ai/action-guard';
 import { GenerateExamInputSchema, type GenerateExamInput, GenerateExamOutputSchema, type GenerateExamOutput } from '@/ai/schemas/exam-schemas';
 import { type AIActionResult } from '@/types/ai-action';
@@ -59,7 +58,7 @@ const generateExamFlow = ai.defineFlow(
     outputSchema: GenerateExamOutputSchema,
   },
   async (input) => {
-    const { output } = await generateWithModelFallback(model =>
+    const { output } = await generateWithFallback(model =>
       prompt(input, model ? { model, config: { maxOutputTokens: 4096 } } : { config: { maxOutputTokens: 4096 } })
     );
     if (!output) {

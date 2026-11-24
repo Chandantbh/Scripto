@@ -8,7 +8,7 @@
  * - AnalyzeContentOutput - The return type for the analyzeContent function.
  */
 
-import {ai} from '@/ai/genkit';
+import {ai, generateWithFallback} from '@/ai/genkit';
 import {z} from 'genkit';
 import { getYouTubeSource } from '@/services/youtube';
 import {executeAIAction} from '@/ai/action-guard';
@@ -106,7 +106,9 @@ const analyzeContentFlow = ai.defineFlow(
       }
     }
     
-    const { output } = await analysisPrompt(processedInput);
+    const { output } = await generateWithFallback(model =>
+      analysisPrompt(processedInput, {model})
+    );
     
     if (!output) {
       throw new Error("Failed to generate concept map.");

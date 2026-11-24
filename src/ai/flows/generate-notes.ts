@@ -9,8 +9,7 @@
  * - GenerateNotesOutput - The return type for the generateNotes function.
  */
 
-import {ai} from '@/ai/genkit';
-import {generateWithModelFallback} from '@/ai/model-retry';
+import {ai, generateWithFallback} from '@/ai/genkit';
 import {executeAIAction} from '@/ai/action-guard';
 import {AIInputError} from '@/ai/errors';
 import {MAX_AI_TEXT_CHARACTERS} from '@/ai/generation-limits';
@@ -69,7 +68,7 @@ const generateNotesFlow = ai.defineFlow(
       throw new AIInputError('No usable content was found. Please check the source and try again.');
     }
     
-    const {output} = await generateWithModelFallback(model =>
+    const {output} = await generateWithFallback(model =>
       generateNotesPrompt({
         content: content || undefined,
         youtubeUrl,

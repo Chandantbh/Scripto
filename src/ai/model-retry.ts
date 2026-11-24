@@ -4,7 +4,6 @@ export const MODEL_FALLBACKS = [
   'googleai/gemini-3.6-flash',
   'googleai/gemini-4-hydrogen',
 ] as const;
-const RETRYABLE_STATUSES = new Set([404, 408, 429, 500, 502, 503, 504]);
 const STATUS_CODES: Record<string, number> = {
   DEADLINE_EXCEEDED: 504,
   INTERNAL: 500,
@@ -26,15 +25,19 @@ export async function generateWithModelFallback<T>(
 
   for (const [index, model] of MODEL_FALLBACKS.entries()) {
     try {
-      return await generate(model);
-    } catch (error) {
-      lastError = error;
-      const status = getHttpStatus(error);
-      const retryable = status === undefined
-        ? isTransientNetworkError(error)
-        : RETRYABLE_STATUSES.has(status);
-
-      if (!retryable) throw error;
+      const result = await generate(model);
+      console.info('[AI_FALLBACK] Model succeeded:', model);
+      return result;
+    } catch (err) {
+      lastError = err;
+      const errorDetail = typeof err === 'object' && err !== null
+        ? 'status' in err && err.status
+          ? err.status
+          : 'message' in err
+            ? err.message
+            : undefined
+        : undefined;
+      console.warn('[AI_FALLBACK] Model failed, trying next:', model, errorDetail);
       if (index < MODEL_FALLBACKS.length - 1) {
         await wait(500);
       }
@@ -91,30 +94,6 @@ function parseStatus(value: unknown): number | undefined {
   return status !== undefined && status >= 100 && status <= 599
     ? status
     : undefined;
-}
-
-function isTransientNetworkError(error: unknown, depth = 0): boolean {
-  if (depth > 3 || typeof error !== 'object' || error === null) {
-    return false;
-  }
-
-  if ('message' in error && typeof error.message === 'string') {
-    const message = error.message.toLowerCase();
-    if (
-      message.includes('404') ||
-      message.includes('503') ||
-      message.includes('429') ||
-      message.includes('high demand') ||
-      message.includes('overloaded') ||
-      message.includes('resource_exhausted') ||
-      message.includes('unavailable') ||
-      /generativelanguage\.googleapis\.com/i.test(error.message)
-    ) {
-      return true;
-    }
-  }
-
-  return 'cause' in error && isTransientNetworkError(error.cause, depth + 1);
 }
 
 function unavailableError(cause: unknown): Error {
