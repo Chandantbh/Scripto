@@ -1,8 +1,11 @@
+import { ZodError } from 'zod';
+import { AIOutputValidationError } from '@/ai/errors';
+
 export const MODEL_FALLBACKS = [
+  'googleai/gemini-2.5-flash',
+  'googleai/gemini-2.5-flash-lite',
+  'googleai/gemini-2.0-flash',
   'googleai/gemini-3.5-flash-lite',
-  'googleai/gemini-3.8-flash',
-  'googleai/gemini-3.6-flash',
-  'googleai/gemini-4-hydrogen',
 ] as const;
 const STATUS_CODES: Record<string, number> = {
   DEADLINE_EXCEEDED: 504,
@@ -14,10 +17,17 @@ const STATUS_CODES: Record<string, number> = {
 type ModelCall<T> = (model: string) => Promise<T>;
 type Delay = (milliseconds: number) => Promise<void>;
 
+export class AIModelFallbackError extends Error {
+  constructor(message: string, cause: unknown) {
+    super(message, { cause });
+    this.name = 'AIModelFallbackError';
+  }
+}
+
 const delay: Delay = milliseconds =>
   new Promise(resolve => setTimeout(resolve, milliseconds));
 
-export async function generateWithModelFallback<T>(
+export async function generateWithFallback<T>(
   generate: ModelCall<T>,
   wait: Delay = delay
 ): Promise<T> {
@@ -26,25 +36,34 @@ export async function generateWithModelFallback<T>(
   for (const [index, model] of MODEL_FALLBACKS.entries()) {
     try {
       const result = await generate(model);
-      console.info('[AI_FALLBACK] Model succeeded:', model);
       return result;
     } catch (err) {
       lastError = err;
-      const errorDetail = typeof err === 'object' && err !== null
-        ? 'status' in err && err.status
-          ? err.status
-          : 'message' in err
-            ? err.message
-            : undefined
+      const errorMessage = typeof err === 'object' && err !== null && 'message' in err
+        ? err.message
         : undefined;
-      console.warn('[AI_FALLBACK] Model failed, trying next:', model, errorDetail);
+      console.error('[AI_MODEL_FAIL]', model, errorMessage);
       if (index < MODEL_FALLBACKS.length - 1) {
         await wait(500);
       }
     }
   }
 
+  if (lastError instanceof ZodError || lastError instanceof AIOutputValidationError) {
+    throw lastError;
+  }
+  if (!isGeminiApiError(lastError)) throw lastError;
   throw unavailableError(lastError);
+}
+
+export const generateWithModelFallback = generateWithFallback;
+
+function isGeminiApiError(error: unknown): boolean {
+  if (getHttpStatus(error) !== undefined) return true;
+  if (typeof error !== 'object' || error === null || !('message' in error) || typeof error.message !== 'string') {
+    return false;
+  }
+  return /generativelanguage\.googleapis\.com|fetch failed|network|econn|timed? ?out|socket|deadline|high demand|overloaded|unavailable|not found|resource_exhausted|rate limit/i.test(error.message);
 }
 
 function getHttpStatus(error: unknown, depth = 0): number | undefined {
@@ -96,12 +115,15 @@ function parseStatus(value: unknown): number | undefined {
     : undefined;
 }
 
-function unavailableError(cause: unknown): Error {
+function unavailableError(cause: unknown): AIModelFallbackError {
   const raw = cause instanceof Error ? cause.message : String(cause ?? '');
   const lowered = raw.toLowerCase();
   const status = getHttpStatus(cause);
-  if (lowered.includes('429') || lowered.includes('rate limit')) {
-    return new Error("You've hit the generation cooldown—wait a minute and try again.", { cause });
+  if (status === 401 || status === 403) {
+    return new AIModelFallbackError('AI service configuration error. Please contact support.', cause);
+  }
+  if (status === 429 || lowered.includes('429') || lowered.includes('rate limit')) {
+    return new AIModelFallbackError("You've hit the generation cooldown—wait a minute and try again.", cause);
   }
   if (
     status === 503 ||
@@ -110,7 +132,7 @@ function unavailableError(cause: unknown): Error {
     lowered.includes('overloaded') ||
     lowered.includes('unavailable')
   ) {
-    return new Error('The AI servers are experiencing a brief traffic spike. Please wait a few seconds and click Try Again.', { cause });
+    return new AIModelFallbackError('The AI servers are experiencing a brief traffic spike. Please wait a few seconds and click Try Again.', cause);
   }
-  return new Error('The AI service is temporarily unavailable. Please try again.', { cause });
+  return new AIModelFallbackError('The AI service is temporarily unavailable. Please try again.', cause);
 }

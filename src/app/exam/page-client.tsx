@@ -31,6 +31,10 @@ import { initializeFlashcardDeck, readFlashcardReviews, REVIEW_STORAGE_KEY } fro
 import { syncStudyFlashcardsAction } from '@/app/actions/user-data';
 import { calculateTopicMastery } from '@/lib/topic-mastery';
 
+function getExamErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return classifyAIError(error).message;
+}
 
 const questionTypes = [
   { id: 'mcq', label: 'Multiple Choice' },
@@ -108,6 +112,8 @@ export default function ExamPage() {
   const formRef = useRef<HTMLFormElement>(null);
   const generationInProgressRef = useRef(false);
   const evaluationInProgressRef = useRef(false);
+  const lastSavedAnswersRef = useRef<string | null>(null);
+  const saveRequestSequenceRef = useRef(0);
   const [composerOpen, setComposerOpen] = useState(true);
   const [weakTopics, setWeakTopics] = useState(() => readWeakTopics());
 
@@ -166,18 +172,30 @@ export default function ExamPage() {
   }, [getExamAnswers, resetExamAnswers, setConfigValue]);
 
   useEffect(() => {
-    if (!examSessionId || !generatedExam) return;
+    if (!examSessionId || !generatedExam || isEvaluating || evaluationResult) return;
     const answers = generatedExam.questions.map((_, index) =>
       String(getExamAnswers(`question_${index}`) ?? ''),
     );
-    window.sessionStorage.setItem(`scripto_exam_answers:${examSessionId}`, JSON.stringify(answers));
+    const serializedCurrentAnswers = JSON.stringify(answers);
+    if (lastSavedAnswersRef.current === `${examSessionId}:${serializedCurrentAnswers}`) return;
+    window.sessionStorage.setItem(`scripto_exam_answers:${examSessionId}`, serializedCurrentAnswers);
     const timer = window.setTimeout(() => {
-      void saveExamAnswersAction(examSessionId, answers).catch(error => {
+      const requestSequence = ++saveRequestSequenceRef.current;
+      void saveExamAnswersAction(examSessionId, answers).then(updatedSessionId => {
+        if (requestSequence !== saveRequestSequenceRef.current) return;
+        lastSavedAnswersRef.current = `${updatedSessionId}:${serializedCurrentAnswers}`;
+        if (updatedSessionId !== examSessionId) {
+          window.sessionStorage.removeItem(`scripto_exam_answers:${examSessionId}`);
+          window.sessionStorage.setItem('scripto_active_exam_session', updatedSessionId);
+          window.sessionStorage.setItem(`scripto_exam_answers:${updatedSessionId}`, serializedCurrentAnswers);
+          setExamSessionId(updatedSessionId);
+        }
+      }).catch(error => {
         console.error('Could not persist exam answers.', error);
       });
     }, 400);
     return () => window.clearTimeout(timer);
-  }, [serializedAnswers, examSessionId, generatedExam, getExamAnswers]);
+  }, [serializedAnswers, examSessionId, generatedExam, getExamAnswers, isEvaluating, evaluationResult]);
 
   async function onConfigSubmit(values: GenerateExamInput) {
     if (generationInProgressRef.current) return;
@@ -189,10 +207,19 @@ export default function ExamPage() {
     setEvaluationResult(null);
     setCompletedExamQuestions([]);
     setExamSessionId(null);
+    lastSavedAnswersRef.current = null;
+    saveRequestSequenceRef.current += 1;
     window.sessionStorage.removeItem('scripto_active_exam_session');
 
     try {
-      const session = await startExamSessionAction(values);
+      const res = await startExamSessionAction(values);
+      if (!res || !res.success) {
+        const message = res?.error || 'Failed to generate exam';
+        setGenerationError(message);
+        toast({ variant: 'destructive', title: 'Could not generate exam', description: message });
+        return;
+      }
+      const { session } = res;
       setGeneratedExam(session.exam);
       setExamSessionId(session.sessionId);
       setExamStartedAt(session.startedAt);
@@ -207,9 +234,9 @@ export default function ExamPage() {
         description: 'Your exam paper is ready to be taken.',
       });
     } catch (error) {
-      const friendly = classifyAIError(error);
-      setGenerationError(friendly.message);
-      toast({ variant: 'destructive', title: 'Could not generate exam', description: friendly.message });
+      const message = getExamErrorMessage(error);
+      setGenerationError(message);
+      toast({ variant: 'destructive', title: 'Could not generate exam', description: message });
     } finally {
       generationInProgressRef.current = false;
       setIsLoading(false);
@@ -274,6 +301,7 @@ export default function ExamPage() {
 
     evaluationInProgressRef.current = true;
     setIsEvaluating(true);
+    saveRequestSequenceRef.current += 1;
     setGenerationError(null);
     const userAnswers = generatedExam.questions.map((_, index) => data[`question_${index}`] || '');
 
@@ -311,9 +339,9 @@ export default function ExamPage() {
         description: "Check out your results and feedback below."
       });
     } catch (error) {
-      const friendly = classifyAIError(error);
-      setGenerationError(friendly.message);
-      toast({ variant: 'destructive', title: 'Could not evaluate exam', description: friendly.message });
+      const message = getExamErrorMessage(error);
+      setGenerationError(message);
+      toast({ variant: 'destructive', title: 'Could not evaluate exam', description: message });
     } finally {
       evaluationInProgressRef.current = false;
       setIsEvaluating(false);

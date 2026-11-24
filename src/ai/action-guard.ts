@@ -1,8 +1,9 @@
 import 'server-only';
 
-import { type ZodError, type ZodType, type ZodTypeDef } from 'zod';
+import { ZodError, type ZodType, type ZodTypeDef } from 'zod';
 import { auth } from '@clerk/nextjs/server';
-import { AIInputError, formatUserErrorMessage, UPSTASH_RATE_LIMIT_MESSAGE } from '@/ai/errors';
+import { AIInputError, AIOutputValidationError, formatUserErrorMessage, UPSTASH_RATE_LIMIT_MESSAGE } from '@/ai/errors';
+import { AIModelFallbackError } from '@/ai/model-retry';
 import { MAX_AI_TEXT_CHARACTERS, MAX_TOPIC_CHARACTERS } from '@/ai/generation-limits';
 import { checkAIRateLimit } from '@/lib/rate-limit';
 import { normalizeYouTubeUrl } from '@/services/youtube';
@@ -76,6 +77,9 @@ export async function executeAIAction<ParsedInput, Output, SchemaInput = ParsedI
     if (operation === 'generateConceptMap') {
       console.error('[CONCEPT_MAP_ERROR]', error);
     }
+    if (operation === 'generateExam') {
+      console.error('[EXAM_GENERATION_FAILED]', error);
+    }
     console.error('[AUTH] action_guard_error', {
       event: 'action_guard_error',
       operation,
@@ -85,6 +89,32 @@ export async function executeAIAction<ParsedInput, Output, SchemaInput = ParsedI
       return {
         ok: false,
         error: { status: 400, code: 'INVALID_INPUT', message: error.message },
+      };
+    }
+    if (error instanceof AIModelFallbackError) {
+      return {
+        ok: false,
+        error: { status: 503, code: 'AI_UNAVAILABLE', message: error.message },
+      };
+    }
+    if (error instanceof ZodError || error instanceof AIOutputValidationError) {
+      return {
+        ok: false,
+        error: {
+          status: 503,
+          code: 'AI_UNAVAILABLE',
+          message: error.message.slice(0, 500),
+        },
+      };
+    }
+    if (operation === 'generateExam') {
+      return {
+        ok: false,
+        error: {
+          status: 503,
+          code: 'AI_UNAVAILABLE',
+          message: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
+        },
       };
     }
 

@@ -58,10 +58,14 @@ create table if not exists public.exam_sessions (
   user_id text not null,
   source_title text not null,
   questions jsonb not null,
+  public_exam jsonb not null,
+  answer_key jsonb not null,
+  answers jsonb not null default '[]'::jsonb,
   started_at timestamptz not null default now(),
   duration_seconds integer not null,
   submitted_at timestamptz,
-  score integer
+  score integer,
+  completed_at timestamptz
 );
 
 -- 6. Enable Row Level Security (RLS)
