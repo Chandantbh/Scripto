@@ -71,7 +71,7 @@
     "youtube-transcript": "^1.2.1",
     "youtube-transcript-api": "^3.0.6",
     "youtube-transcript-plus": "^1.0.4",
-    "youtubei.js": "^14.0.0",
+    "youtubei.js": "^18.3.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
