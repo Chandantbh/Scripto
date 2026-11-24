@@ -48,9 +48,7 @@ export async function executeAIAction<ParsedInput, Output, SchemaInput = ParsedI
         error: {
           status: 429,
           code: 'RATE_LIMITED',
-          message: limit.window === 'minute'
-            ? "You've reached the request limit. Please wait a minute before generating again."
-            : "You've reached the hourly request limit. Please try again later.",
+          message: 'You’ve reached the AI request limit (15 requests per 10 minutes). Please try again shortly.',
           retryAfterSeconds: limit.retryAfterSeconds,
         },
       };

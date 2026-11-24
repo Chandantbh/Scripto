@@ -46,6 +46,7 @@ export default function FlashcardsPage() {
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [dueCount, setDueCount] = useState(0);
   const [dueCards, setDueCards] = useState<ReviewCard[]>([]);
+  const [composerOpen, setComposerOpen] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const generationInProgressRef = useRef(false);
 
@@ -108,9 +109,30 @@ export default function FlashcardsPage() {
           color: card.color ?? 'blue',
         })),
       });
+      setComposerOpen(false);
     } else {
       setGenerationError('Nothing is due right now. Your next review card will appear here.');
     }
+  };
+
+  const handleExportAnki = () => {
+    if (!generatedContent?.flashcards?.length) return;
+    const escapeCsv = (value: string) => {
+      const cleaned = value.replace(/\r?\n/g, ' ').replace(/"/g, '""');
+      return `"${cleaned}"`;
+    };
+    const rows = generatedContent.flashcards.map(card =>
+      `${escapeCsv(card.question)},${escapeCsv(card.answer)}`
+    );
+    const blob = new Blob(['\ufeff' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'scripto-anki-cards.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   };
 
   const handleGenerate = async () => {
@@ -184,6 +206,7 @@ export default function FlashcardsPage() {
         }
 
       setGeneratedContent(result);
+      setComposerOpen(false);
     } catch (error) {
       setGenerationError(getAIErrorMessage(error));
     } finally {
@@ -230,10 +253,29 @@ export default function FlashcardsPage() {
         <Button variant="outline" onClick={handleDrillDue} disabled={dueCount === 0}>
           Drill due cards
         </Button>
+        {generatedContent?.flashcards?.length ? (
+          <Button variant="outline" onClick={handleExportAnki}>
+            <Download className="mr-2 h-4 w-4" />
+            Export for Anki (.csv)
+          </Button>
+        ) : null}
       </div>
       <AIErrorBanner message={generationError} />
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-          <div className="space-y-6">
+      {generatedContent && (
+        <div className="mb-5 flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">{generatedContent.sourceTopic || 'Flashcard review'}</p>
+            <p className="text-xs text-muted-foreground">Active flashcard practice</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setComposerOpen(true)}>
+            + New topic / Edit input
+          </Button>
+        </div>
+      )}
+      <div className={generatedContent
+        ? composerOpen ? 'mx-auto w-full max-w-3xl' : 'w-full'
+        : 'mx-auto w-full max-w-3xl'}>
+          <div className={`space-y-6 ${generatedContent && !composerOpen ? 'hidden' : ''}`}>
              <Card>
                 <Tabs value={inputMode} onValueChange={(v) => {
                     setInputMode(v as InputMode);
@@ -301,7 +343,7 @@ export default function FlashcardsPage() {
             </Card>
           </div>
 
-          <Card className="lg:sticky top-24 min-h-[400px] lg:min-h-[600px] flex flex-col">
+          <Card className={`${generatedContent && !composerOpen ? '' : 'mt-6'} min-h-[400px] lg:min-h-[600px] flex flex-col`}>
             <CardHeader>
               <CardTitle>Generated Flashcards</CardTitle>
               <CardDescription>Review your key concepts.</CardDescription>

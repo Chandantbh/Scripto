@@ -16,6 +16,10 @@ import {
   Volume2,
   Youtube,
   Trash2,
+  Plus,
+  Share2,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import Image from 'next/image';
 import { SignInButton, useAuth } from '@clerk/nextjs';
@@ -59,6 +63,12 @@ import StudyStudio from '@/components/app/study-studio';
 import type { StudyAction } from '@/components/app/study-studio';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { requestGuestAuth } from '@/lib/guest-mode';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 type InputMode = 'from-text' | 'from-topic' | 'from-youtube' | 'from-file';
 
@@ -163,6 +173,8 @@ export default function NotesPage() {
   const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [mobileView, setMobileView] = useState<'notes' | 'studio'>('notes');
+  const [composerOpen, setComposerOpen] = useState(true);
+  const [focusMode, setFocusMode] = useState(false);
   const { toast } = useToast();
   const { isLoaded, isSignedIn } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -390,6 +402,7 @@ export default function NotesPage() {
   };
 
   const handleOpenSavedNote = (note: SavedNote) => {
+    setComposerOpen(false);
     setInputMode(getInputMode(note.sourceType));
     setGeneratedContent({
       notes: note.content,
@@ -543,6 +556,8 @@ export default function NotesPage() {
       }
 
       setGeneratedContent(result);
+      setComposerOpen(false);
+      setMobileView('studio');
     } catch (error) {
       setGenerationError(getAIErrorMessage(error));
     } finally {
@@ -606,6 +621,34 @@ export default function NotesPage() {
         </div>
       )}
 
+      {generatedContent?.notes && (
+        <div className="mb-5 flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">
+              {generatedContent.sourceTopic || generatedContent.sourceFileName || 'Generated study source'}
+            </p>
+            <p className="text-xs text-muted-foreground">Active study workspace</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setComposerOpen(true);
+                setFocusMode(false);
+                setMobileView('notes');
+              }}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              New source
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setIsSavedNotesOpen(true)}>
+              Saved Notes
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="mb-4 grid grid-cols-2 rounded-lg bg-muted p-1 lg:hidden">
         <Button
           variant={mobileView === 'notes' ? 'default' : 'ghost'}
@@ -623,9 +666,21 @@ export default function NotesPage() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 gap-8 items-start flex-1 lg:grid-cols-[1.15fr_0.85fr]">
+      <div className={
+        generatedContent?.notes
+          ? composerOpen
+            ? 'mx-auto w-full max-w-3xl'
+            : focusMode
+              ? 'grid w-full grid-cols-1 gap-6 items-start flex-1'
+              : 'grid w-full grid-cols-1 gap-6 items-start flex-1'
+          : 'mx-auto w-full max-w-3xl'
+      }>
         {/* Left panel */}
-        <div className={`space-y-6 ${mobileView === 'notes' ? 'block' : 'hidden'} lg:block`}>
+        <div className={
+          generatedContent?.notes
+            ? `space-y-6 ${composerOpen ? 'block' : 'hidden'}`
+            : 'space-y-6'
+        }>
           <Card>
             <Tabs
               value={inputMode}
@@ -787,7 +842,7 @@ export default function NotesPage() {
         </div>
 
         {/* Right panel */}
-        <Card className={`${mobileView === 'studio' ? 'flex' : 'hidden'} lg:sticky top-24 lg:flex flex-1 flex-col overflow-hidden`}>
+        <Card className={`${mobileView === 'studio' ? 'flex' : 'hidden'} ${composerOpen ? 'hidden' : ''} lg:sticky top-24 ${composerOpen ? 'lg:hidden' : 'lg:flex'} w-full flex-1 flex-col overflow-hidden`}>
           <CardHeader>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -796,22 +851,42 @@ export default function NotesPage() {
                 </div>
                 {generatedContent?.notes && (
                   <div className="flex flex-wrap items-center gap-2">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm" disabled={isExportingPdf}>
+                          {isExportingPdf ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <Download className="mr-2 h-4 w-4" />
+                          )}
+                          Export
+                          <ChevronDown className="ml-2 h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => void handleExportPdf()}>
+                          Export PDF
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={handleExportMarkdown}>
+                          Export Markdown (.md)
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={handleExportPdf}
-                      disabled={isExportingPdf}
+                      onClick={() => window.dispatchEvent(new CustomEvent('scripto:study-share'))}
                     >
-                      {isExportingPdf ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Download className="h-4 w-4" />
-                      )}
-                      Export PDF
+                      <Share2 className="h-4 w-4" />
+                      Share
                     </Button>
-                    <Button variant="outline" size="sm" onClick={handleExportMarkdown}>
-                      <Download className="h-4 w-4" />
-                      Export Markdown .md
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setFocusMode(value => !value)}
+                    >
+                      {focusMode ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                      {focusMode ? 'Exit focus' : 'Focus mode'}
                     </Button>
                     <Button
                       variant="outline"
@@ -875,14 +950,18 @@ export default function NotesPage() {
               </div>
             )}
             {generatedContent?.notes ? (
-              <div className="grid lg:grid-cols-[minmax(0,1.2fr)_minmax(260px,0.8fr)]">
-                <div className="min-w-0">{renderContent()}</div>
-                <StudyStudio
-                  notes={generatedContent.notes}
-                  selectedText={selectedText}
-                  selectedAction={selectedAction}
-                  title={generatedContent.sourceTopic || generatedContent.sourceFileName || 'Study Pack'}
-                />
+              <div className={focusMode
+                ? 'grid grid-cols-1'
+                : 'grid grid-cols-1 lg:grid-cols-[1.35fr_0.85fr] gap-6'}>
+                <div className="min-w-0 text-[15.5px] leading-relaxed">{renderContent()}</div>
+                {!focusMode && (
+                  <StudyStudio
+                    notes={generatedContent.notes}
+                    selectedText={selectedText}
+                    selectedAction={selectedAction}
+                    title={generatedContent.sourceTopic || generatedContent.sourceFileName || 'Study Pack'}
+                  />
+                )}
               </div>
             ) : renderContent()}
           </CardContent>

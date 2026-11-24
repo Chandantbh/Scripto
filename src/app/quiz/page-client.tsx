@@ -28,6 +28,7 @@ import GenerationSkeleton from '@/components/app/generation-skeleton';
 import { readStudyPreferences } from '@/components/app/settings-dialog';
 import { useAuth } from '@clerk/nextjs';
 import { reserveGuestGeneration } from '@/lib/guest-mode';
+import { readWeakTopics, recordWeakTopics, WEAK_TOPICS_STORAGE_KEY } from '@/lib/weak-topics';
 
 type InputMode = 'from-text' | 'from-topic' | 'from-youtube' | 'from-file';
 
@@ -60,6 +61,9 @@ export default function QuizPage() {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const generationInProgressRef = useRef(false);
+  const [composerOpen, setComposerOpen] = useState(true);
+  const [weakTopics, setWeakTopics] = useState(() => readWeakTopics());
+  const [weakMode, setWeakMode] = useState(false);
 
   useEffect(() => {
     const mode = searchParams.get('mode');
@@ -71,6 +75,55 @@ export default function QuizPage() {
     if (searchParams.get('topic')) setTopic(searchParams.get('topic') ?? '');
     if (searchParams.get('url')) setYoutubeUrl(searchParams.get('url') ?? '');
   }, [searchParams]);
+
+  useEffect(() => {
+    const refresh = () => setWeakTopics(readWeakTopics());
+    refresh();
+    window.addEventListener('storage', refresh);
+    return () => window.removeEventListener('storage', refresh);
+  }, []);
+
+  useEffect(() => {
+    if (searchParams.get('weak') === '1') {
+      setWeakMode(true);
+      const weak = readWeakTopics();
+      if (weak.length) {
+        setGeneratedContent({
+          quiz: {
+            questions: weak.slice(0, 15).map(item => ({
+              question: item.question,
+              options: [item.answer, 'Review this concept again', 'None of the above', 'Unsure'],
+              answer: item.answer,
+              emoji: '🎯',
+            })),
+          },
+          sourceTopic: 'Weak-topic review',
+        });
+        setComposerOpen(false);
+      }
+    }
+  }, [searchParams]);
+
+  const handleDrillWeakTopics = () => {
+    const weak = readWeakTopics();
+    if (!weak.length) {
+      setGenerationError('No weak topics recorded yet. Missed questions will appear here.');
+      return;
+    }
+    setWeakMode(true);
+    setGeneratedContent({
+      quiz: {
+        questions: weak.slice(0, 15).map(item => ({
+          question: item.question,
+          options: [item.answer, 'Review this concept again', 'None of the above', 'Unsure'],
+          answer: item.answer,
+          emoji: '🎯',
+        })),
+      },
+      sourceTopic: 'Weak-topic review',
+    });
+    setComposerOpen(false);
+  };
 
   const [audioSrc, setAudioSrc] = useState<string | null>(null);
   const [isSynthesizing, setIsSynthesizing] = useState<string | null>(null);
@@ -169,6 +222,7 @@ export default function QuizPage() {
         result = { quiz: { questions: textResult.questions } }
       }
       setGeneratedContent(result);
+      setComposerOpen(false);
     } catch (error) {
       setGenerationError(getAIErrorMessage(error));
     } finally {
@@ -256,6 +310,12 @@ export default function QuizPage() {
         <QuizDisplay 
             questions={generatedContent.quiz.questions} 
             onQuizSubmit={saveQuizResult}
+            onMissedQuestions={missed => recordWeakTopics(missed.map(question => ({
+              question: question.question,
+              answer: question.answer,
+              concept: generatedContent.sourceTopic || 'Quiz',
+              source: 'quiz',
+            })))}
             onPlayAudio={handlePlayAudio}
             isSynthesizing={isSynthesizing}
         />
@@ -272,10 +332,26 @@ export default function QuizPage() {
           <h1 className="text-2xl font-bold tracking-tight">Generate Quiz</h1>
           <p className="text-muted-foreground">Test your knowledge on any topic.</p>
         </div>
+        <Button variant="outline" className="ml-auto" onClick={handleDrillWeakTopics} disabled={weakTopics.length === 0}>
+          Drill Weak Topics
+        </Button>
       </div>
        <AIErrorBanner message={generationError} />
-       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-          <div className="space-y-6">
+        {generatedContent && (
+          <div className="mb-5 flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold">{generatedContent.sourceTopic || 'Custom quiz'}</p>
+              <p className="text-xs text-muted-foreground">Active quiz practice</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setComposerOpen(true)}>
+              + New topic / Edit input
+            </Button>
+          </div>
+        )}
+        <div className={generatedContent
+          ? composerOpen ? 'mx-auto w-full max-w-3xl' : 'w-full'
+          : 'mx-auto w-full max-w-3xl'}>
+           <div className={`space-y-6 ${generatedContent && !composerOpen ? 'hidden' : ''}`}>
             <Card>
                 <Tabs value={inputMode} onValueChange={(v) => {
                     setInputMode(v as InputMode);
@@ -334,7 +410,7 @@ export default function QuizPage() {
             <AudioPlayer src={audioSrc} onEnded={() => setAudioSrc(null)} />
           </div>
 
-          <Card className="lg:sticky top-24 min-h-[400px] lg:min-h-[600px] flex flex-col">
+          <Card className={`${generatedContent && !composerOpen ? '' : 'mt-6'} min-h-[400px] lg:min-h-[600px] flex flex-col`}>
             <CardHeader>
               <CardTitle>Generated Quiz</CardTitle>
               <CardDescription>Test your knowledge.</CardDescription>

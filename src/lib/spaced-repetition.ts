@@ -20,6 +20,22 @@ export interface FlashcardReview {
 
 export const REVIEW_STORAGE_KEY = 'scripto_flashcard_reviews';
 
+export function getReviewIntervalMinutes(rating: ReviewRating): number {
+  return rating === 'again' ? 10 : rating === 'good' ? 24 * 60 : 4 * 24 * 60;
+}
+
+export function getReviewDueAt(card: ReviewCard, rating: ReviewRating, now = new Date(), existing?: FlashcardReview): FlashcardReview {
+  const intervalMinutes = getReviewIntervalMinutes(rating);
+  return {
+    key: cardKey(card),
+    card,
+    dueAt: new Date(now.getTime() + intervalMinutes * 60 * 1000).toISOString(),
+    intervalMinutes,
+    repetitions: rating === 'again' ? 0 : (existing?.repetitions ?? 0) + 1,
+    updatedAt: now.toISOString(),
+  };
+}
+
 function cardKey(card: ReviewCard): string {
   const source = `${card.question}\u0000${card.answer}`;
   let hash = 0;
@@ -66,20 +82,12 @@ export function scheduleFlashcard(card: ReviewCard, rating: ReviewRating, now = 
   const reviews = readFlashcardReviews();
   const key = cardKey(card);
   const existing = reviews.find(review => review.key === key);
-  const intervalMinutes = rating === 'again' ? 10 : rating === 'good' ? 24 * 60 : 4 * 24 * 60;
-  const next: FlashcardReview = {
-    key,
-    card: {
-      question: card.question,
-      answer: card.answer,
-      emoji: card.emoji,
-      color: card.color,
-    },
-    dueAt: new Date(now.getTime() + intervalMinutes * 60 * 1000).toISOString(),
-    intervalMinutes,
-    repetitions: rating === 'again' ? 0 : (existing?.repetitions ?? 0) + 1,
-    updatedAt: now.toISOString(),
-  };
+  const next = getReviewDueAt({
+    question: card.question,
+    answer: card.answer,
+    emoji: card.emoji,
+    color: card.color,
+  }, rating, now, existing);
 
   const updated = [next, ...reviews.filter(review => review.key !== key)];
   if (typeof window !== 'undefined') {

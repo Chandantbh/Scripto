@@ -30,11 +30,12 @@ interface Question {
 interface QuizDisplayProps {
   questions: Question[];
   onQuizSubmit: (score: number, totalQuestions: number) => void;
+  onMissedQuestions?: (questions: Question[]) => void;
   onPlayAudio: (text: string, id: string) => void;
   isSynthesizing: string | null;
 }
 
-const QuizDisplay: FC<QuizDisplayProps> = ({ questions, onQuizSubmit, onPlayAudio, isSynthesizing }) => {
+const QuizDisplay: FC<QuizDisplayProps> = ({ questions, onQuizSubmit, onMissedQuestions, onPlayAudio, isSynthesizing }) => {
   const [selectedAnswers, setSelectedAnswers] = useState<(string | undefined)[]>(Array(questions.length).fill(undefined));
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isReviewing, setIsReviewing] = useState(false);
@@ -100,11 +101,15 @@ const QuizDisplay: FC<QuizDisplayProps> = ({ questions, onQuizSubmit, onPlayAudi
 
   const handleSubmit = () => {
     let newScore = 0;
+    const missed: Question[] = [];
     for (let i = 0; i < questions.length; i++) {
       if (selectedAnswers[i] === questions[i].answer) {
         newScore++;
+      } else {
+        missed.push(questions[i]);
       }
     }
+    onMissedQuestions?.(missed);
     setScore(newScore);
     setIsSubmitted(true);
     setIsReviewing(false);

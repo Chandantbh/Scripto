@@ -49,6 +49,7 @@ export default function Eli5Page() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
   const generationInProgressRef = useRef(false);
+  const [composerOpen, setComposerOpen] = useState(true);
 
   useEffect(() => {
     const depth = readStudyPreferences().explainerDepth;
@@ -101,6 +102,7 @@ export default function Eli5Page() {
       }
 
       setGeneratedContent(unwrapAIActionResult(await explainLikeImFive(input)));
+      setComposerOpen(false);
     } catch (error) {
       setGenerationError(error instanceof InputSelectionError
         ? error.message
@@ -145,8 +147,21 @@ export default function Eli5Page() {
         </div>
       </div>
       <AIErrorBanner message={generationError} />
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-        <div className="space-y-6">
+      {generatedContent && (
+        <div className="mb-5 flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">
+              {inputMode === 'text' ? inputText.slice(0, 80) || 'Concept explanation' : inputMode === 'youtube' ? youtubeUrl : 'Uploaded source'}
+            </p>
+            <p className="text-xs text-muted-foreground">Active explanation</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setComposerOpen(true)}>+ New topic / Edit input</Button>
+        </div>
+      )}
+      <div className={generatedContent
+        ? composerOpen ? 'mx-auto w-full max-w-3xl' : 'w-full'
+        : 'mx-auto w-full max-w-3xl'}>
+        <div className={`space-y-6 ${generatedContent && !composerOpen ? 'hidden' : ''}`}>
           <Card>
             <Tabs
               value={inputMode}
@@ -229,7 +244,7 @@ export default function Eli5Page() {
           </Card>
         </div>
 
-        <Card className="lg:sticky top-24 min-h-[400px] lg:min-h-[600px] flex flex-col">
+        <Card className={`${generatedContent && !composerOpen ? '' : 'mt-6'} min-h-[400px] lg:min-h-[600px] flex flex-col`}>
           <CardHeader>
             <CardTitle>Generated Explanation</CardTitle>
             <CardDescription>Here's the topic, explained for you.</CardDescription>

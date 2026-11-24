@@ -5,6 +5,19 @@ import * as pdfjs from 'pdfjs-dist';
 import mammoth from 'mammoth';
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+export const ALLOWED_DOCUMENT_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/plain',
+]);
+
+export function isAllowedDocumentFile(file: Pick<File, 'name' | 'type' | 'size'>): boolean {
+  const extension = file.name.toLowerCase().split('.').pop();
+  if (!['pdf', 'docx', 'txt'].includes(extension ?? '')) return false;
+  if (file.size <= 0 || file.size > MAX_UPLOAD_BYTES) return false;
+  if (file.type) return ALLOWED_DOCUMENT_MIME_TYPES.has(file.type.toLowerCase());
+  return true;
+}
 
 // Set the workerSrc for pdfjs-dist. This is necessary for it to work in a browser environment.
 // We are using a CDN for simplicity.
@@ -22,6 +35,9 @@ export async function extractTextFromFile(file: File): Promise<string> {
     }
     if (file.size > MAX_UPLOAD_BYTES) {
         throw new Error('Files must be 10 MB or smaller.');
+    }
+    if (!isAllowedDocumentFile(file)) {
+        throw new Error('Unsupported file type. Choose a PDF, DOCX, or TXT file.');
     }
 
     if (file.type === 'application/pdf') {

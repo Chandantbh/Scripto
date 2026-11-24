@@ -30,6 +30,7 @@ import AIErrorBanner from '@/components/app/ai-error-banner';
 import { getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
 import { useAuth } from '@clerk/nextjs';
 import { reserveGuestGeneration } from '@/lib/guest-mode';
+import GenerationSkeleton from '@/components/app/generation-skeleton';
 
 const initialNodes: Node[] = [
   {
@@ -67,6 +68,7 @@ export default function ConceptMapPage() {
   const [generationError, setGenerationError] = useState<string | null>(null);
   const { toast } = useToast();
   const generationInProgressRef = useRef(false);
+  const [composerOpen, setComposerOpen] = useState(true);
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge(params, eds)),
@@ -134,6 +136,7 @@ export default function ConceptMapPage() {
       
       if (result) {
          mapDataToFlowElements(result);
+         setComposerOpen(false);
          toast({ title: 'Concept Map Generated', description: `Created map for: ${topic}` });
       }
 
@@ -183,6 +186,7 @@ export default function ConceptMapPage() {
                 setTopic('');
                 setDetails('');
                 setGenerationError(null);
+                setComposerOpen(true);
             }}>
                 <RotateCcw className="mr-2 h-4 w-4" />
                 Reset
@@ -196,8 +200,24 @@ export default function ConceptMapPage() {
 
       <AIErrorBanner message={generationError} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-full">
-        <Card className="lg:col-span-1 p-4 flex flex-col gap-4 h-fit">
+      {nodes.length > 1 && (
+        <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">{topic || 'Concept map'}</p>
+            <p className="text-xs text-muted-foreground">Active concept workspace</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setComposerOpen(true)}>
+            + New topic / Edit input
+          </Button>
+        </div>
+      )}
+
+      <div className={nodes.length > 1 && !composerOpen
+        ? 'grid grid-cols-1 gap-6 h-full'
+        : nodes.length === 1
+          ? 'mx-auto w-full max-w-3xl'
+          : 'grid grid-cols-1 gap-6 h-full lg:grid-cols-4'}>
+        <Card className={`${nodes.length > 1 && !composerOpen ? 'hidden' : nodes.length === 1 ? 'w-full' : 'lg:col-span-1'} p-4 flex flex-col gap-4 h-fit`}>
             <div className="space-y-2">
                 <Label>Topic</Label>
                 <Input 
@@ -233,7 +253,7 @@ export default function ConceptMapPage() {
             </div>
         </Card>
 
-        <Card className="lg:col-span-3 h-[600px] lg:h-full border-2 border-muted overflow-hidden relative">
+        <Card className={`${nodes.length === 1 ? 'hidden' : nodes.length > 1 && !composerOpen ? '' : 'lg:col-span-3'} h-[600px] lg:h-full border-2 border-muted overflow-hidden relative`}>
             <ReactFlow
                 nodes={nodes}
                 edges={edges}
@@ -255,9 +275,8 @@ export default function ConceptMapPage() {
             </ReactFlow>
             {isLoading && (
                 <div className="absolute inset-0 bg-background/80 flex items-center justify-center z-50">
-                    <div className="flex flex-col items-center gap-2">
-                        <Loader2 className="h-10 w-10 animate-spin text-primary" />
-                        <p className="font-medium text-lg">Mapping Concepts...</p>
+                    <div className="w-full">
+                        <GenerationSkeleton kind="map" />
                     </div>
                 </div>
             )}

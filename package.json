@@ -9,6 +9,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test": "tsx --test src/ai/model-retry.test.ts src/lib/spaced-repetition.test.ts src/lib/rate-limit.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

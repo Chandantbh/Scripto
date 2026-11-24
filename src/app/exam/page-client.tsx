@@ -26,6 +26,8 @@ import AIErrorBanner from '@/components/app/ai-error-banner';
 import { getAIErrorMessage, unwrapAIActionResult } from '@/lib/ai-action-result';
 import { useAuth } from '@clerk/nextjs';
 import { reserveGuestGeneration } from '@/lib/guest-mode';
+import GenerationSkeleton from '@/components/app/generation-skeleton';
+import { readWeakTopics, recordWeakTopics } from '@/lib/weak-topics';
 
 
 const questionTypes = [
@@ -85,6 +87,8 @@ export default function ExamPage() {
   const formRef = useRef<HTMLFormElement>(null);
   const generationInProgressRef = useRef(false);
   const evaluationInProgressRef = useRef(false);
+  const [composerOpen, setComposerOpen] = useState(true);
+  const [weakTopics, setWeakTopics] = useState(() => readWeakTopics());
 
   const form = useForm<GenerateExamInput>({
     resolver: zodResolver(GenerateExamInputSchema),
@@ -109,6 +113,7 @@ export default function ExamPage() {
     try {
       const result = unwrapAIActionResult(await generateExam(values));
       setGeneratedExam(result);
+      setComposerOpen(false);
       toast({
         title: 'Exam Generated Successfully!',
         description: 'Your exam paper is ready to be taken.',
@@ -187,6 +192,16 @@ export default function ExamPage() {
         examQuestions: generatedExam.questions,
         userAnswers,
       }));
+      recordWeakTopics(generatedExam.questions
+        .map((question, index) => ({ question, index }))
+        .filter(({ index }) => result.feedbackPerQuestion[index]?.isCorrect !== 'correct')
+        .map(({ question }) => ({
+          question: question.question_text,
+          answer: question.correct_answer,
+          concept: form.getValues('subject') || 'Exam',
+          source: 'exam' as const,
+        })));
+      setWeakTopics(readWeakTopics());
       setEvaluationResult(result);
       await saveExamResult(
         form.getValues('subject'), 
@@ -429,24 +444,57 @@ export default function ExamPage() {
                 setGeneratedExam(null);
                 setEvaluationResult(null);
                 setGenerationError(null);
+                setComposerOpen(true);
                 form.reset();
                 examAnswersForm.reset();
             }}>
-                Create New Exam
+                + New topic / Edit input
             </Button>
+        )}
+        {!generatedExam && !evaluationResult && weakTopics.length > 0 && (
+          <Button
+            variant="outline"
+            onClick={() => {
+              const concepts = [...new Set(weakTopics.map(item => item.concept))].slice(0, 5);
+              const weakQuestions = weakTopics.slice(0, 12).map(item => item.question);
+              form.setValue('subject', concepts.join(', ') || 'Weak topics');
+              form.setValue('chapters', weakQuestions.join('; '));
+              void onConfigSubmit({
+                subject: concepts.join(', ') || 'Weak topics',
+                chapters: weakQuestions.join('; '),
+                grade: form.getValues('grade') || 'General',
+                totalMarks: 50,
+                questionTypes: ['mcq', 'short_answer'],
+              });
+            }}
+          >
+            Drill Weak Topics
+          </Button>
         )}
       </div>
 
       <AIErrorBanner message={generationError} />
 
+      {(generatedExam || evaluationResult) && (
+        <div className="mb-5 flex flex-col gap-1 rounded-xl border border-border bg-card px-4 py-3">
+          <p className="truncate text-sm font-semibold">{form.getValues('subject') || 'Timed exam'}</p>
+          <p className="text-xs text-muted-foreground">Active exam workspace</p>
+        </div>
+      )}
+
        {isLoading && !generatedExam && (
-            <div className="flex flex-col justify-center items-center mt-8 gap-4">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <p className="text-muted-foreground">Generating your exam, please wait...</p>
-            </div>
+            <Card className="mx-auto w-full max-w-4xl">
+              <CardContent className="pt-2">
+                <GenerationSkeleton kind="exam" />
+              </CardContent>
+            </Card>
         )}
       
-      {renderContent()}
+      {!generatedExam && !evaluationResult ? (
+        <div className="mx-auto w-full max-w-3xl">{renderContent()}</div>
+      ) : (
+        <div className="w-full">{renderContent()}</div>
+      )}
 
     </div>
   );

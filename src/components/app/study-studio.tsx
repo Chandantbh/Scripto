@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { BrainCircuit, HelpCircle, Layers, Network, Send, Share2, Loader2 } from 'lucide-react';
+import { BrainCircuit, HelpCircle, Layers, Network, MessageCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
@@ -14,8 +14,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import GuestAuthModal from '@/components/app/guest-auth-modal';
 import { createStudyPackAction } from '@/app/actions/user-data';
 import { useToast } from '@/hooks/use-toast';
+import { explainLikeImFive } from '@/ai/flows/eli5';
 
-type StudioTab = 'quiz' | 'cards' | 'map' | 'ask';
+type StudioTab = 'quiz' | 'cards' | 'map' | 'chat';
+
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
 
 export type StudyAction = 'explain' | 'cards' | 'quiz';
 
@@ -35,16 +41,32 @@ export default function StudyStudio({
   const [tab, setTab] = useState<StudioTab>('quiz');
   const [mastery, setMastery] = useState(18);
   const [questionText, setQuestionText] = useState('');
-  const [answer, setAnswer] = useState('');
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatLoading, setChatLoading] = useState(false);
   const [items, setItems] = useState<{ question: string; answer?: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const lastActionRef = useRef('');
   const [shareOpen, setShareOpen] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setMastery(notes ? Math.min(100, 18 + Math.round(notes.length / 180)) : 0);
+    setChatMessages([]);
+    setQuestionText('');
   }, [notes]);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [chatMessages, chatLoading]);
+
+  useEffect(() => {
+    const shareListener = () => {
+      void handleShare();
+    };
+    window.addEventListener('scripto:study-share', shareListener);
+    return () => window.removeEventListener('scripto:study-share', shareListener);
+  });
 
   useEffect(() => {
     if (!selectedAction || !selectedText) return;
@@ -52,9 +74,8 @@ export default function StudyStudio({
     if (lastActionRef.current === actionKey) return;
     lastActionRef.current = actionKey;
     if (selectedAction === 'explain') {
-      setTab('ask');
+      setTab('chat');
       setQuestionText(`Explain this more simply: ${selectedText}`);
-      setAnswer('');
     } else if (selectedAction === 'cards') {
       setTab('cards');
       void generateRecall('cards', selectedText);
@@ -90,10 +111,39 @@ export default function StudyStudio({
     }
   };
 
-  const askMargin = () => {
-    if (!questionText.trim()) return;
-    setAnswer(`From the current notes: “${questionText.trim().replace(/\?+$/, '')}”`);
-    setMastery(value => Math.min(100, value + 4));
+  const sendChatMessage = async (prompt = questionText) => {
+    const message = prompt.trim();
+    if (!message || chatLoading) return;
+    if (!reserveGuestGeneration(Boolean(isSignedIn))) return;
+
+    const nextMessages: ChatMessage[] = [...chatMessages, { role: 'user', content: message }];
+    setChatMessages(nextMessages);
+    setQuestionText('');
+    setChatLoading(true);
+    try {
+      const history = nextMessages
+        .map(item => `${item.role === 'user' ? 'Student' : 'Tutor'}: ${item.content}`)
+        .join('\n');
+      const result = unwrapAIActionResult(await explainLikeImFive({
+        text: `${notes}\n\nConversation so far:\n${history}\n\nRespond helpfully to the latest student question.`,
+        difficulty: 'medium',
+      }));
+      setChatMessages(current => [
+        ...current,
+        { role: 'assistant', content: result.explanation },
+      ]);
+      setMastery(value => Math.min(100, value + 4));
+    } catch (error) {
+      setChatMessages(current => [
+        ...current,
+        {
+          role: 'assistant',
+          content: 'I could not answer that follow-up right now. Please try sending it again.',
+        },
+      ]);
+    } finally {
+      setChatLoading(false);
+    }
   };
 
   const handleShare = async () => {
@@ -137,13 +187,7 @@ export default function StudyStudio({
       <div className="border-b border-border px-4 py-4">
         <div className="mb-2 flex items-center justify-between text-sm">
           <span className="font-semibold">Topic mastery</span>
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground">{mastery}%</span>
-            <Button variant="outline" size="sm" onClick={() => void handleShare()} disabled={sharing}>
-              {sharing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Share2 className="mr-2 h-4 w-4" />}
-              Share
-            </Button>
-          </div>
+          <span className="text-muted-foreground">{mastery}%</span>
         </div>
         <Progress value={mastery} className="h-1.5" />
       </div>
@@ -152,7 +196,7 @@ export default function StudyStudio({
           ['quiz', HelpCircle, 'Quiz'],
           ['cards', Layers, 'Flashcards'],
           ['map', Network, 'Concept Map'],
-          ['ask', Send, 'Ask Margin'],
+          ['chat', MessageCircle, 'Chat'],
         ] as const).map(([value, Icon, label]) => (
           <button
             key={value}
@@ -235,22 +279,91 @@ export default function StudyStudio({
             )}
           </div>
         )}
-        {tab === 'ask' && (
-          <div className="space-y-3">
-            <Textarea
-              value={questionText}
-              onChange={event => setQuestionText(event.target.value)}
-              onKeyDown={event => {
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  event.preventDefault();
-                  askMargin();
-                }
-              }}
-              placeholder="Ask about the current notes..."
-              className="min-h-24"
-            />
-            <Button className="w-full" onClick={askMargin}>Ask in margin</Button>
-            {answer && <div className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">{answer}</div>}
+        {tab === 'chat' && (
+          <div className="flex min-h-[420px] flex-col">
+            {chatMessages.length === 0 && (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {[
+                  'Go deeper on this',
+                  'Give a real-world example',
+                  'What might appear on an exam?',
+                ].map(prompt => (
+                  <Button
+                    key={prompt}
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="h-auto whitespace-normal rounded-full px-3 py-1.5 text-xs"
+                    onClick={() => void sendChatMessage(prompt)}
+                  >
+                    {prompt}
+                  </Button>
+                ))}
+              </div>
+            )}
+            <div className="flex-1 space-y-3 overflow-y-auto pr-1">
+              {chatMessages.map((message, index) => (
+                <div
+                  key={`${message.role}-${index}`}
+                  className={`max-w-[90%] rounded-lg px-3 py-2 text-sm ${
+                    message.role === 'user'
+                      ? 'ml-auto bg-primary text-primary-foreground'
+                      : 'bg-muted text-foreground'
+                  }`}
+                >
+                  {message.content}
+                </div>
+              ))}
+              {chatLoading && (
+                <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Thinking...
+                </div>
+              )}
+              <div ref={chatEndRef} />
+            </div>
+            <div className="mt-3 space-y-2 border-t border-border pt-3">
+              {chatMessages.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    'Go deeper',
+                    'Give an example',
+                    'Quiz me',
+                  ].map(prompt => (
+                    <Button
+                      key={prompt}
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 rounded-full border border-border px-2.5 text-xs"
+                      onClick={() => void sendChatMessage(prompt)}
+                    >
+                      {prompt}
+                    </Button>
+                  ))}
+                </div>
+              )}
+              <Textarea
+                value={questionText}
+                onChange={event => setQuestionText(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    void sendChatMessage();
+                  }
+                }}
+                placeholder="Ask a follow-up..."
+                className="min-h-20 resize-none"
+              />
+              <Button
+                className="w-full"
+                disabled={chatLoading || !questionText.trim()}
+                onClick={() => void sendChatMessage()}
+              >
+                <MessageCircle className="mr-2 h-4 w-4" />
+                Send
+              </Button>
+            </div>
           </div>
         )}
       </div>

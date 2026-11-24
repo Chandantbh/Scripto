@@ -143,6 +143,39 @@
     border-radius: 0.75rem;
   }
 
+  .generation-skeleton {
+    min-height: 16rem;
+  }
+
+  .generation-shimmer {
+    position: relative;
+    overflow: hidden;
+    background: hsl(var(--muted));
+  }
+
+  .generation-shimmer::after {
+    content: "";
+    position: absolute;
+    inset: -60%;
+    transform: translateX(-55%) rotate(18deg);
+    background: linear-gradient(
+      90deg,
+      transparent 35%,
+      hsl(var(--foreground) / 0.055) 50%,
+      transparent 65%
+    );
+    animation: generation-diagonal-shimmer 1.8s linear infinite;
+  }
+
+  @keyframes generation-diagonal-shimmer {
+    from {
+      transform: translateX(-55%) rotate(18deg);
+    }
+    to {
+      transform: translateX(55%) rotate(18deg);
+    }
+  }
+
   .skeleton-status {
     color: hsl(var(--muted-foreground));
   }
@@ -202,5 +235,9 @@
   .hover-column *,
   .group-hover\:translate-x-0\.5 {
     transform: none !important;
+  }
+  .generation-shimmer::after {
+    animation: none !important;
+    transform: none;
   }
 }
