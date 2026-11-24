@@ -17,7 +17,7 @@ import type { UserDashboardData } from '@/app/actions/user-data';
 import { getGuestDisplayName } from '@/lib/guest-mode';
 import { getDueFlashcardCount } from '@/lib/spaced-repetition';
 import { Badge } from '@/components/ui/badge';
-import { getFlashcardReviewsAction } from '@/app/actions/user-data';
+import { getStudyFlashcardsAction } from '@/app/actions/user-data';
 
 const tools = [
   {
@@ -90,8 +90,8 @@ export default function HomeClient({
   useEffect(() => {
     setDueCount(getDueFlashcardCount());
     if (isSignedIn) {
-      void getFlashcardReviewsAction().then(reviews => {
-        if (reviews.length) setDueCount(reviews.filter(review => new Date(review.dueAt).getTime() <= Date.now()).length);
+      void getStudyFlashcardsAction().then(cards => {
+        if (cards.length) setDueCount(cards.filter(card => new Date(card.dueAt) <= new Date()).length);
       });
     }
   }, [isSignedIn]);

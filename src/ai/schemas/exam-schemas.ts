@@ -23,7 +23,7 @@ export type GenerateExamInput = z.infer<typeof GenerateExamInputSchema>;
 
 export const GenerateExamOutputSchema = z.object({
   title: z.string().max(200).describe('A suitable title for the exam paper.'),
-  timeLimitMinutes: z.number().int().min(1).describe('The suggested time limit for the exam in minutes.'),
+  timeLimitMinutes: z.number().int().min(1).max(600).describe('The suggested time limit for the exam in minutes.'),
   instructions: z.string().max(5_000).describe('General instructions for the exam.'),
   questions: z.array(ExamQuestionSchema).min(1).max(50).describe('An array of exam questions.'),
 });

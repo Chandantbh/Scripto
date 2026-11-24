@@ -17,6 +17,7 @@ import { getYouTubeSource } from '@/services/youtube';
 import {z} from 'genkit';
 import {type AIActionResult} from '@/types/ai-action';
 import {PROMPT_SYSTEM_INSTRUCTIONS} from '@/ai/prompt-security';
+import { QuizOutputSchema, type QuizQuestion } from '@/ai/schemas/quiz-schemas';
 
 const GenerateQuizInputSchema = z.object({
   text: z.string().trim().min(1).max(MAX_AI_TEXT_CHARACTERS).optional().describe('The text to generate a quiz from.'),
@@ -26,17 +27,8 @@ const GenerateQuizInputSchema = z.object({
   .refine(input => !(input.text && input.youtubeUrl), 'Provide only one content source.');
 export type GenerateQuizInput = z.infer<typeof GenerateQuizInputSchema>;
 
-const QuizQuestionSchema = z.object({
-    question: z.string().describe('The question.'),
-    options: z.array(z.string()).describe('An array of 4 multiple choice options.'),
-    answer: z.string().describe('The correct answer. Must be one of the options.'),
-    emoji: z.string().optional().describe('A single emoji related to the question.'),
-});
-
-const GenerateQuizOutputSchema = z.object({
-  questions: z.array(QuizQuestionSchema).describe('An array of quiz questions.'),
-});
-export type GenerateQuizOutput = z.infer<typeof GenerateQuizOutputSchema>;
+const GenerateQuizOutputSchema = QuizOutputSchema;
+export type GenerateQuizOutput = { questions: QuizQuestion[] };
 
 export async function generateQuiz(input: GenerateQuizInput): Promise<AIActionResult<GenerateQuizOutput>> {
   return executeAIAction('generateQuiz', input, GenerateQuizInputSchema, generateQuizFlow);
@@ -50,7 +42,7 @@ const prompt = ai.definePrompt({
   You are a quiz generator. Generate exactly {{{questionCount}}} questions based on the following content.
   {{#if content}}<study_material>{{{content}}}</study_material>{{/if}}
   {{#if youtubeUrl}}YouTube video: {{media url=youtubeUrl}}{{/if}}
-  The quiz should include multiple choice questions with 4 options and a correct answer. For each question, also provide a single, relevant emoji.`,
+  Each question must have a unique, non-empty prompt; exactly 4 distinct non-empty options; a correctIndex from 0 to 3; a non-empty explanation; and optionally a single relevant emoji.`,
 });
 
 const generateQuizFlow = ai.defineFlow(
@@ -73,17 +65,26 @@ const generateQuizFlow = ai.defineFlow(
       throw new AIInputError('No usable content was found. Please check the source and try again.');
     }
 
-    const {output} = await generateWithModelFallback(model =>
-      prompt({
+    const promptInput = {
         content: content || undefined,
         youtubeUrl,
         questionCount: input.questionCount ?? 10,
-      }, model ? { model, config: { maxOutputTokens: 4096 } } : { config: { maxOutputTokens: 4096 } })
-    );
-    if (!output) {
-      throw new Error('Failed to generate the quiz.');
+    };
+    try {
+      const { output } = await generateWithModelFallback(model =>
+        prompt(promptInput, model ? { model, config: { maxOutputTokens: 4096 } } : { config: { maxOutputTokens: 4096 } })
+      );
+      return GenerateQuizOutputSchema.parse(output);
+    } catch (firstError) {
+      const { output } = await prompt(promptInput, {
+        model: 'googleai/gemini-2.5-flash',
+        config: { maxOutputTokens: 4096 },
+      });
+      try {
+        return GenerateQuizOutputSchema.parse(output);
+      } catch {
+        throw new Error('The quiz generator returned invalid questions after one fallback retry.', { cause: firstError });
+      }
     }
-
-    return output;
   }
 );

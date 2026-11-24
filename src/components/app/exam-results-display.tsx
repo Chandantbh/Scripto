@@ -1,7 +1,7 @@
 'use client';
 
-import { type FC } from 'react';
-import { Award, CheckCircle, XCircle, AlertCircle, TrendingUp } from 'lucide-react';
+import { useState, type FC } from 'react';
+import { Award, CheckCircle, XCircle, AlertCircle, Layers } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Progress } from '@/components/ui/progress';
@@ -9,13 +9,20 @@ import { type EvaluateExamOutput } from '@/ai/schemas/evaluation-schemas';
 import { type ExamQuestion } from '@/ai/schemas/exam-schemas';
 import { cn } from '@/lib/utils';
 import { Badge } from '../ui/badge';
+import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
 
 interface ExamResultsDisplayProps {
   results: EvaluateExamOutput;
   questions: ExamQuestion[];
+  timeTakenSeconds?: number;
+  onConvertMissedQuestions?: () => Promise<void>;
 }
 
-const ExamResultsDisplay: FC<ExamResultsDisplayProps> = ({ results, questions }) => {
+const ExamResultsDisplay: FC<ExamResultsDisplayProps> = ({ results, questions, timeTakenSeconds, onConvertMissedQuestions }) => {
+  const [isConverting, setIsConverting] = useState(false);
+  const [converted, setConverted] = useState(false);
+  const { toast } = useToast();
   const totalMarks = questions.reduce((acc, q) => acc + q.marks, 0);
   const percentage = totalMarks > 0 ? (results.totalScore / totalMarks) * 100 : 0;
 
@@ -53,9 +60,36 @@ const ExamResultsDisplay: FC<ExamResultsDisplayProps> = ({ results, questions })
               </div>
             )}
           </div>
+          {timeTakenSeconds !== undefined && (
+            <p className="text-sm text-muted-foreground">
+              Time taken: {Math.floor(timeTakenSeconds / 60)}m {timeTakenSeconds % 60}s
+            </p>
+          )}
           <Progress value={percentage} className="w-full" />
         </CardContent>
       </Card>
+      {onConvertMissedQuestions && results.feedbackPerQuestion.some(item => item.isCorrect !== 'correct') && (
+        <Button
+          variant="secondary"
+          className="w-full"
+          disabled={isConverting || converted}
+          onClick={async () => {
+            setIsConverting(true);
+            try {
+              await onConvertMissedQuestions();
+              setConverted(true);
+            } catch (error) {
+              console.error('Could not convert missed exam questions to flashcards.', error);
+              toast({ variant: 'destructive', title: 'Could not save flashcards', description: 'Your exam results are still available.' });
+            } finally {
+              setIsConverting(false);
+            }
+          }}
+        >
+          <Layers className="mr-2 h-4 w-4" />
+          {converted ? 'Missed Questions Saved' : isConverting ? 'Saving Flashcards...' : 'Convert Missed Questions to Flashcards'}
+        </Button>
+      )}
 
       <Card>
         <CardHeader>

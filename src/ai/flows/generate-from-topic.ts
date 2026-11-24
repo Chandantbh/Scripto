@@ -14,7 +14,8 @@ import {executeAIAction} from '@/ai/action-guard';
 import {MAX_FLASHCARDS, MAX_TOPIC_CHARACTERS} from '@/ai/generation-limits';
 import {z} from 'genkit';
 import {type AIActionResult} from '@/types/ai-action';
-import {PROMPT_SYSTEM_INSTRUCTIONS, wrapUntrustedContent} from '@/ai/prompt-security';
+import {PROMPT_SYSTEM_INSTRUCTIONS} from '@/ai/prompt-security';
+import { QuizQuestionsSchema } from '@/ai/schemas/quiz-schemas';
 
 const GenerateFromTopicInputSchema = z.object({
   topic: z.string().trim().min(3).max(
@@ -26,17 +27,10 @@ const GenerateFromTopicInputSchema = z.object({
 });
 export type GenerateFromTopicInput = z.infer<typeof GenerateFromTopicInputSchema>;
 
-const QuizQuestionSchema = z.object({
-    question: z.string().describe('The question.'),
-    options: z.array(z.string()).describe('An array of 4 multiple choice options.'),
-    answer: z.string().describe('The correct answer. Must be one of the options.'),
-    emoji: z.string().optional().describe('A single emoji related to the question.'),
-});
-
 const GenerateFromTopicOutputSchema = z.object({
   notes: z.string().describe('The generated notes in markdown format.'),
   quiz: z.object({
-    questions: z.array(QuizQuestionSchema).describe('An array of quiz questions.'),
+    questions: QuizQuestionsSchema.describe('Unique quiz questions with four distinct choices and explanations.'),
   }),
   flashcards: z.array(
     z.object({
@@ -63,7 +57,7 @@ You are an expert educator and content creator. Your task is to generate a compr
 
 The study materials should include:
 1.  **Notes**: A summary of the key concepts, definitions, and important points about the topic. Format this as {{{noteFormat}}} markdown (use a Concise summary, Detailed sections, or Cornell Cues/Notes/Summary).
-2.  **Quiz**: A multiple-choice quiz with exactly {{{quizLength}}} questions to test understanding. Each question should have 4 options, a correct answer, and a single relevant emoji.
+2.  **Quiz**: A multiple-choice quiz with exactly {{{quizLength}}} questions to test understanding. Each question needs a unique non-empty prompt, 4 distinct non-empty options, a correctIndex from 0 to 3, a non-empty explanation, and a single relevant emoji.
 3.  **Flashcards**: Generate 8–10 high-yield flashcards. Keep each front and back to 1–2 concise sentences.
 4.  **Image Hint**: A 1-2 word hint for a web search for a cover image for these study materials. For example, for "The basics of photosynthesis" you could provide "photosynthesis basics".
 
@@ -81,18 +75,34 @@ const generateFromTopicFlow = ai.defineFlow(
     outputSchema: GenerateFromTopicOutputSchema,
   },
   async input => {
-    const {output} = await generateWithModelFallback(model =>
-      generateContentPrompt({
+    const promptInput = {
         ...input,
         noteFormat: input.noteFormat ?? 'Detailed',
         quizLength: input.quizLength ?? 10,
-      }, model
-        ? { model, config: { maxOutputTokens: 2048 } }
-        : { config: { maxOutputTokens: 2048 } })
-    );
+    };
+    let output: GenerateFromTopicOutput;
+    try {
+      const generated = await generateWithModelFallback(model =>
+        generateContentPrompt(promptInput, model
+          ? { model, config: { maxOutputTokens: 2048 } }
+          : { config: { maxOutputTokens: 2048 } })
+      );
+      output = GenerateFromTopicOutputSchema.parse(generated.output);
+    } catch (firstError) {
+      try {
+        const fallback = await generateContentPrompt(promptInput, {
+          model: 'googleai/gemini-2.5-flash',
+          config: { maxOutputTokens: 2048 },
+        });
+        output = GenerateFromTopicOutputSchema.parse(fallback.output);
+      } catch {
+        throw new Error('The topic generator returned invalid quiz questions after one fallback retry.', { cause: firstError });
+      }
+    }
 
-    if (!output) {
-      throw new Error("Failed to generate content from topic.");
+    const strictQuestions = QuizQuestionsSchema.safeParse(output.quiz.questions);
+    if (!strictQuestions.success) {
+      throw new Error('The topic generator returned invalid quiz questions.');
     }
 
     return {

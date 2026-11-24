@@ -29,6 +29,7 @@ interface Props {
   flashcards: Flashcard[];
   onReview?: (card: Flashcard, rating: ReviewRating) => void;
   onCardsChange?: (cards: Flashcard[]) => void;
+  onStarredChange?: (card: Flashcard, starred: boolean) => void;
   sourceTopic?: string;
   onGenerateNew?: () => void;
   onBackToGenerator?: () => void;
@@ -41,6 +42,7 @@ const FlashcardsDisplay: FC<Props> = ({
   flashcards,
   onReview,
   onCardsChange,
+  onStarredChange,
   sourceTopic,
   onGenerateNew,
   onBackToGenerator,
@@ -75,6 +77,10 @@ const FlashcardsDisplay: FC<Props> = ({
     setCurrentIndex(0);
     setFlippedStates(flashcards.map(() => false));
     setSessionComplete(false);
+    const savedStars = readFlashcardReviews()
+      .filter(review => review.starred)
+      .map(review => review.key);
+    setStarred(current => [...new Set([...current, ...savedStars])]);
   }, [flashcards]);
 
   useEffect(() => {
@@ -125,7 +131,11 @@ const FlashcardsDisplay: FC<Props> = ({
 
   const toggleStar = (card: Flashcard) => {
     const key = cardKey(card);
-    setStarred(current => current.includes(key) ? current.filter(item => item !== key) : [...current, key]);
+    const nextStarred = !starred.includes(key);
+    setStarred(current => nextStarred
+      ? [...current, key]
+      : current.filter(item => item !== key));
+    onStarredChange?.(card, nextStarred);
   };
 
   const rateCard = (card: Flashcard, rating: ReviewRating) => {
@@ -134,7 +144,7 @@ const FlashcardsDisplay: FC<Props> = ({
     const nextRemembered = remembered + (rating !== 'again' ? 1 : 0);
     setReviewed(nextReviewed);
     setRemembered(nextRemembered);
-    if (rating === 'again' || rating === 'hard') {
+    if (rating === 'again') {
       setMissed(current => current.some(item => cardKey(item) === cardKey(card)) ? current : [...current, card]);
     }
     setFlippedStates(activeCards.map(() => false));
@@ -160,9 +170,9 @@ const FlashcardsDisplay: FC<Props> = ({
       } else if (event.key === 'ArrowRight') {
         event.preventDefault();
         goTo(currentIndex + 1);
-      } else if (['1', '2', '3', '4'].includes(event.key) && flippedStates[currentIndex]) {
+      } else if (['1', '2', '3'].includes(event.key) && flippedStates[currentIndex]) {
         event.preventDefault();
-        const ratings: ReviewRating[] = ['again', 'hard', 'good', 'easy'];
+        const ratings: ReviewRating[] = ['again', 'good', 'easy'];
         const card = activeCards[currentIndex];
         if (card) rateCard(card, ratings[Number(event.key) - 1]);
       } else if (event.key.toLowerCase() === 's') {
@@ -218,14 +228,19 @@ const FlashcardsDisplay: FC<Props> = ({
   }
 
   if (sessionComplete) {
+    const isDueDrill = sourceTopic === 'Due-card review';
+    const nextDueAt = readFlashcardReviews()
+      .map(review => new Date(review.dueAt))
+      .filter(date => date.getTime() > Date.now())
+      .sort((left, right) => left.getTime() - right.getTime())[0];
     return (
       <Card className="mx-auto w-full max-w-xl text-center">
         <CardContent className="space-y-5 p-8">
           <div className="text-5xl">🎉</div>
-          <h2 className="text-2xl font-bold">Session Complete</h2>
-          <p className="text-muted-foreground">
-            {reviewed} reviewed · {remembered} remembered · Next review tomorrow
-          </p>
+          <h2 className="text-2xl font-bold">{isDueDrill ? 'All caught up!' : 'Session Complete'}</h2>
+          <p className="text-muted-foreground">{isDueDrill
+            ? nextDueAt ? `Next review: ${nextDueAt.toLocaleDateString()}` : 'No upcoming reviews scheduled.'
+            : `${reviewed} reviewed · ${remembered} remembered`}</p>
           <div className="flex flex-wrap justify-center gap-2">
             <Button onClick={() => { setSessionComplete(false); setReviewed(0); setRemembered(0); api?.scrollTo(0); }}>
               Review Again
@@ -249,7 +264,7 @@ const FlashcardsDisplay: FC<Props> = ({
   const currentCard = activeCards[currentIndex];
   const dueCount = cards.filter(card => {
     const review = readFlashcardReviews().find(item => item.key === cardKey(card));
-    return !review || new Date(review.nextReviewAt ?? review.dueAt).getTime() <= Date.now();
+    return !review || new Date(review.dueAt) <= new Date();
   }).length;
 
   return (
@@ -340,16 +355,15 @@ const FlashcardsDisplay: FC<Props> = ({
                         </CardContent>
                         <div className="border-t p-3">
                           {onReview ? (
-                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                            <div className="grid grid-cols-3 gap-2">
                               {([
-                                ['again', 'Now', 'destructive'],
-                                ['hard', '12h', 'secondary'],
-                                ['good', '1d', 'secondary'],
-                                ['easy', '4d', 'default'],
-                              ] as const).map(([rating, interval, variant]) => (
+                                ['again', 'destructive'],
+                                ['good', 'secondary'],
+                                ['easy', 'default'],
+                              ] as const).map(([rating, variant]) => (
                                 <Button key={rating} type="button" size="sm" variant={variant}
                                   onClick={() => rateCard(card, rating)}>
-                                  {rating[0].toUpperCase() + rating.slice(1)} · {rating === 'again' ? 'Now' : formatReviewInterval(getReviewIntervalMinutes(rating))}
+                                  {rating[0].toUpperCase() + rating.slice(1)} · {formatReviewInterval(getReviewIntervalMinutes(rating))}
                                 </Button>
                               ))}
                             </div>
@@ -376,7 +390,7 @@ const FlashcardsDisplay: FC<Props> = ({
       </Carousel>
 
       <div className="text-center text-xs text-muted-foreground">
-        Space Flip · ←/→ Navigate · 1 Again · 2 Hard · 3 Good · 4 Easy · S Star
+        Space Flip · ←/→ Navigate · 1 Again · 2 Good · 3 Easy · S Star
       </div>
     </div>
   );

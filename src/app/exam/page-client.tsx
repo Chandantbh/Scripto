@@ -2,13 +2,12 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { ClipboardCheck, Loader2, Wand2, CheckCircle, Clock } from 'lucide-react';
-import { generateExam } from '@/ai/flows/generate-exam';
-import { evaluateExam } from '@/ai/flows/evaluate-exam';
 import { type GenerateExamInput, GenerateExamInputSchema, type GenerateExamOutput } from '@/ai/schemas/exam-schemas';
 import { type EvaluateExamOutput } from '@/ai/schemas/evaluation-schemas';
+import { getExamSessionAction, saveExamAnswersAction, startExamSessionAction, submitExamSessionAction } from '@/app/actions/exam-session';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
@@ -23,11 +22,14 @@ import { achievements } from '@/lib/achievements';
 import { recordActivityAction } from '@/app/actions/user-data';
 import { recordActivityLocally, type ActivityProgressUpdate, type ActivityInput } from '@/lib/gamification';
 import AIErrorBanner from '@/components/app/ai-error-banner';
-import { classifyAIError, unwrapAIActionResult } from '@/lib/ai-action-result';
+import { classifyAIError } from '@/lib/ai-action-result';
 import { useAuth } from '@clerk/nextjs';
 import { reserveGuestGeneration } from '@/lib/guest-mode';
 import GenerationSkeleton from '@/components/app/generation-skeleton';
 import { readWeakTopics, recordWeakTopics } from '@/lib/weak-topics';
+import { initializeFlashcardDeck, readFlashcardReviews, REVIEW_STORAGE_KEY } from '@/lib/spaced-repetition';
+import { syncStudyFlashcardsAction } from '@/app/actions/user-data';
+import { calculateTopicMastery } from '@/lib/topic-mastery';
 
 
 const questionTypes = [
@@ -37,21 +39,34 @@ const questionTypes = [
 ] as const;
 
 
-const ExamTimer = ({ durationMinutes, onTimeUp }: { durationMinutes: number; onTimeUp: () => void }) => {
-    const [timeLeft, setTimeLeft] = useState(durationMinutes * 60);
+type ActiveExam = Omit<GenerateExamOutput, 'questions'> & {
+  questions: Array<Omit<GenerateExamOutput['questions'][number], 'correct_answer'>>;
+};
+
+const ExamTimer = ({ startedAt, durationSeconds, onTimeUp }: { startedAt: string; durationSeconds: number; onTimeUp: () => void }) => {
+    const [timeLeft, setTimeLeft] = useState(() =>
+      Math.max(0, Math.ceil((new Date(startedAt).getTime() + durationSeconds * 1000 - Date.now()) / 1000)),
+    );
+    const onTimeUpRef = useRef(onTimeUp);
+    const timeUpCalledRef = useRef(false);
+
+    useEffect(() => { onTimeUpRef.current = onTimeUp; }, [onTimeUp]);
 
     useEffect(() => {
-        if (timeLeft <= 0) {
-            onTimeUp();
-            return;
-        }
-
-        const timerId = setInterval(() => {
-            setTimeLeft(prevTime => prevTime - 1);
-        }, 1000);
-
-        return () => clearInterval(timerId);
-    }, [timeLeft, onTimeUp]);
+        const updateRemaining = () => {
+            const remaining = Math.max(0, Math.ceil(
+              (new Date(startedAt).getTime() + durationSeconds * 1000 - Date.now()) / 1000,
+            ));
+            setTimeLeft(remaining);
+            if (remaining === 0 && !timeUpCalledRef.current) {
+                timeUpCalledRef.current = true;
+                onTimeUpRef.current();
+            }
+        };
+        updateRemaining();
+        const timerId = window.setInterval(updateRemaining, 1000);
+        return () => window.clearInterval(timerId);
+    }, [startedAt, durationSeconds]);
 
     const minutes = Math.floor(timeLeft / 60);
     const seconds = timeLeft % 60;
@@ -78,7 +93,13 @@ export default function ExamPage() {
   const { isSignedIn } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
-  const [generatedExam, setGeneratedExam] = useState<GenerateExamOutput | null>(null);
+  const [generatedExam, setGeneratedExam] = useState<ActiveExam | null>(null);
+  const [completedExamQuestions, setCompletedExamQuestions] = useState<GenerateExamOutput['questions']>([]);
+  const [examSessionId, setExamSessionId] = useState<string | null>(null);
+  const [examStartedAt, setExamStartedAt] = useState<string | null>(null);
+  const [examDurationSeconds, setExamDurationSeconds] = useState(0);
+  const [timeExpired, setTimeExpired] = useState(false);
+  const [timeTakenSeconds, setTimeTakenSeconds] = useState(0);
   const [evaluationResult, setEvaluationResult] = useState<EvaluateExamOutput | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const { toast } = useToast();
@@ -100,6 +121,63 @@ export default function ExamPage() {
       questionTypes: ['mcq', 'short_answer'],
     },
   });
+  const watchedAnswers = useWatch({ control: examAnswersForm.control });
+  const serializedAnswers = JSON.stringify(watchedAnswers);
+  const resetExamAnswers = examAnswersForm.reset;
+  const getExamAnswers = examAnswersForm.getValues;
+  const setConfigValue = form.setValue;
+
+  useEffect(() => {
+    const storedSessionId = window.sessionStorage.getItem('scripto_active_exam_session');
+    if (!storedSessionId) return;
+    let active = true;
+    void getExamSessionAction(storedSessionId).then(session => {
+      if (!active) return;
+      if (!session) {
+        window.sessionStorage.removeItem('scripto_active_exam_session');
+        return;
+      }
+      const localAnswers = window.sessionStorage.getItem(`scripto_exam_answers:${storedSessionId}`);
+      let answers = session.answers;
+      if (localAnswers) {
+        try {
+          const parsed: unknown = JSON.parse(localAnswers);
+          if (Array.isArray(parsed) && parsed.length === session.answers.length
+            && parsed.every(answer => typeof answer === 'string')) {
+            answers = parsed;
+          }
+        } catch {
+          window.sessionStorage.removeItem(`scripto_exam_answers:${storedSessionId}`);
+        }
+      }
+      setExamSessionId(storedSessionId);
+      setGeneratedExam(session.exam);
+      setExamStartedAt(session.startedAt);
+      setExamDurationSeconds(session.durationSeconds);
+      setTimeExpired(false);
+      setConfigValue('subject', session.sourceTitle);
+      resetExamAnswers(Object.fromEntries(answers.map((answer, index) => [`question_${index}`, answer])));
+      setComposerOpen(false);
+    }).catch(error => {
+      console.error('Could not restore the active exam.', error);
+      if (active) setGenerationError('The active exam could not be restored. Start a new exam to continue.');
+    });
+    return () => { active = false; };
+  }, [getExamAnswers, resetExamAnswers, setConfigValue]);
+
+  useEffect(() => {
+    if (!examSessionId || !generatedExam) return;
+    const answers = generatedExam.questions.map((_, index) =>
+      String(getExamAnswers(`question_${index}`) ?? ''),
+    );
+    window.sessionStorage.setItem(`scripto_exam_answers:${examSessionId}`, JSON.stringify(answers));
+    const timer = window.setTimeout(() => {
+      void saveExamAnswersAction(examSessionId, answers).catch(error => {
+        console.error('Could not persist exam answers.', error);
+      });
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [serializedAnswers, examSessionId, generatedExam, getExamAnswers]);
 
   async function onConfigSubmit(values: GenerateExamInput) {
     if (generationInProgressRef.current) return;
@@ -109,10 +187,20 @@ export default function ExamPage() {
     setGenerationError(null);
     setGeneratedExam(null);
     setEvaluationResult(null);
+    setCompletedExamQuestions([]);
+    setExamSessionId(null);
+    window.sessionStorage.removeItem('scripto_active_exam_session');
 
     try {
-      const result = unwrapAIActionResult(await generateExam(values));
-      setGeneratedExam(result);
+      const session = await startExamSessionAction(values);
+      setGeneratedExam(session.exam);
+      setExamSessionId(session.sessionId);
+      setExamStartedAt(session.startedAt);
+      setExamDurationSeconds(session.durationSeconds);
+      setCompletedExamQuestions([]);
+      window.sessionStorage.setItem('scripto_active_exam_session', session.sessionId);
+      window.sessionStorage.removeItem(`scripto_exam_answers:${session.sessionId}`);
+      examAnswersForm.reset();
       setComposerOpen(false);
       toast({
         title: 'Exam Generated Successfully!',
@@ -190,11 +278,14 @@ export default function ExamPage() {
     const userAnswers = generatedExam.questions.map((_, index) => data[`question_${index}`] || '');
 
     try {
-      const result = unwrapAIActionResult(await evaluateExam({
-        examQuestions: generatedExam.questions,
-        userAnswers,
-      }));
-      recordWeakTopics(generatedExam.questions
+      if (!examSessionId) throw new Error('Exam session is missing. Please start a new exam.');
+      const submitted = await submitExamSessionAction(examSessionId, userAnswers);
+      const result = submitted.result;
+      setTimeTakenSeconds(submitted.timeTakenSeconds);
+      setCompletedExamQuestions(submitted.questions);
+      window.sessionStorage.removeItem('scripto_active_exam_session');
+      window.sessionStorage.removeItem(`scripto_exam_answers:${examSessionId}`);
+      recordWeakTopics(submitted.questions
         .map((question, index) => ({ question, index }))
         .filter(({ index }) => result.feedbackPerQuestion[index]?.isCorrect !== 'correct')
         .map(({ question }) => ({
@@ -205,6 +296,10 @@ export default function ExamPage() {
         })));
       setWeakTopics(readWeakTopics());
       setEvaluationResult(result);
+      if (!isSignedIn) updateLocalTopicMastery(
+        form.getValues('subject') || 'Exam',
+        (result.totalScore / generatedExam.questions.reduce((sum, question) => sum + question.marks, 0)) * 100,
+      );
       await saveExamResult(
         form.getValues('subject'), 
         result.totalScore, 
@@ -226,12 +321,13 @@ export default function ExamPage() {
   }
   
   const handleTimeUp = () => {
+    setTimeExpired(true);
     toast({
         title: "Time's Up!",
         description: "Automatically submitting your exam.",
         variant: "destructive"
     });
-    formRef.current?.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    formRef.current?.requestSubmit();
   };
 
   const renderExamTaker = () => {
@@ -239,7 +335,9 @@ export default function ExamPage() {
 
     return (
         <>
-            <ExamTimer durationMinutes={generatedExam.timeLimitMinutes} onTimeUp={handleTimeUp} />
+            {examStartedAt && (
+              <ExamTimer startedAt={examStartedAt} durationSeconds={examDurationSeconds} onTimeUp={handleTimeUp} />
+            )}
             <Card>
                 <CardHeader className="text-center">
                     <CardTitle className="text-2xl">{generatedExam.title}</CardTitle>
@@ -275,7 +373,7 @@ export default function ExamPage() {
                                                 </FormLabel>
                                                 <FormControl>
                                                     {question.question_type === 'mcq' && question.options ? (
-                                                        <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="pt-2 space-y-2">
+                                                        <RadioGroup onValueChange={field.onChange} value={field.value} disabled={timeExpired || isEvaluating} className="pt-2 space-y-2">
                                                             {question.options.map((option, optIndex) => (
                                                                 <FormItem key={optIndex} className="flex items-center space-x-3 space-y-0">
                                                                     <FormControl>
@@ -286,7 +384,7 @@ export default function ExamPage() {
                                                             ))}
                                                         </RadioGroup>
                                                     ) : (
-                                                        <AutoExpandingTextarea placeholder="Your answer..." maxLength={2000} {...field} className="mt-2" />
+                                                        <AutoExpandingTextarea placeholder="Your answer..." maxLength={2000} disabled={timeExpired || isEvaluating} {...field} className="mt-2" />
                                                     )}
                                                 </FormControl>
                                                 <FormMessage />
@@ -309,7 +407,43 @@ export default function ExamPage() {
 
   const renderContent = () => {
     if (evaluationResult && generatedExam) {
-        return <ExamResultsDisplay results={evaluationResult} questions={generatedExam.questions} />;
+        return (
+          <ExamResultsDisplay
+            results={evaluationResult}
+            questions={completedExamQuestions}
+            timeTakenSeconds={timeTakenSeconds}
+            onConvertMissedQuestions={async () => {
+              const cards = completedExamQuestions
+                .map((question, index) => ({ question, feedback: evaluationResult.feedbackPerQuestion[index] }))
+                .filter(item => item.feedback && item.feedback.isCorrect !== 'correct')
+                .map(item => ({
+                  question: item.question.question_text,
+                  answer: `${item.question.correct_answer}\n\n${item.feedback?.feedback ?? ''}`,
+                }));
+              const existing = readFlashcardReviews();
+              const knownKeys = new Set(existing.map(review => review.key));
+              const initializedDeck = initializeFlashcardDeck(cards, new Date(), existing);
+              const deck = initializedDeck.map(review => knownKeys.has(review.key)
+                ? review
+                : { ...review, sourceTitle: form.getValues('subject') || 'Exam review' });
+              window.localStorage.setItem(REVIEW_STORAGE_KEY, JSON.stringify(deck));
+              const additions = deck.filter(review => !knownKeys.has(review.key));
+              await syncStudyFlashcardsAction(additions.map(review => ({
+                id: review.id ?? crypto.randomUUID(),
+                sourceTitle: review.sourceTitle ?? 'Exam review',
+                front: review.card.question,
+                back: review.card.answer,
+                ease: review.ease,
+                intervalDays: review.intervalDays,
+                reps: review.reps,
+                dueAt: review.dueAt,
+                lastReviewedAt: review.lastReviewedAt ?? null,
+                starred: review.starred ?? false,
+              })));
+              toast({ title: 'Missed questions added to flashcards.' });
+            }}
+          />
+        );
     }
     if (generatedExam) {
         return renderExamTaker();
@@ -447,10 +581,15 @@ export default function ExamPage() {
             <Button variant="secondary" onClick={() => {
                 setGeneratedExam(null);
                 setEvaluationResult(null);
+                setCompletedExamQuestions([]);
+                setExamSessionId(null);
+                setExamStartedAt(null);
+                setExamDurationSeconds(0);
                 setGenerationError(null);
                 setComposerOpen(true);
                 form.reset();
                 examAnswersForm.reset();
+                window.sessionStorage.removeItem('scripto_active_exam_session');
             }}>
                 + New topic / Edit input
             </Button>
@@ -506,4 +645,23 @@ export default function ExamPage() {
 
     </div>
   );
+}
+
+function updateLocalTopicMastery(topicName: string, latestScore: number) {
+  const key = 'scripto_topic_mastery';
+  try {
+    const stored: unknown = JSON.parse(window.localStorage.getItem(key) ?? '[]');
+    const mastery: Array<{ topic: string; masteryScore: number; updatedAt: string }> =
+      Array.isArray(stored) ? stored.filter(item =>
+        item && typeof item.topic === 'string' && typeof item.masteryScore === 'number',
+      ) : [];
+    const previous = mastery.find(item => item.topic === topicName);
+    const newMastery = calculateTopicMastery(previous?.masteryScore ?? 0, latestScore);
+    window.localStorage.setItem(key, JSON.stringify([
+      { topic: topicName, masteryScore: newMastery, updatedAt: new Date().toISOString() },
+      ...mastery.filter(item => item.topic !== topicName),
+    ]));
+  } catch (error) {
+    console.error('Could not save topic mastery on this device.', error);
+  }
 }

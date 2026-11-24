@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { BrainCircuit, Loader2, Wand2, Layers, BookOpen, Upload, Download, FileType, Youtube, ChevronDown, FileJson, Maximize2 } from 'lucide-react';
 
@@ -21,8 +21,8 @@ import { classifyAIError, unwrapAIActionResult } from '@/lib/ai-action-result';
 import GenerationSkeleton from '@/components/app/generation-skeleton';
 import { useAuth } from '@clerk/nextjs';
 import { reserveGuestGeneration } from '@/lib/guest-mode';
-import { getDueFlashcardCount, getDueFlashcards, scheduleFlashcard, readFlashcardReviews, REVIEW_STORAGE_KEY, initializeFlashcardDeck, type FlashcardReview, type ReviewCard, type ReviewRating } from '@/lib/spaced-repetition';
-import { getFlashcardReviewsAction, syncFlashcardReviewsAction, recordActivityAction } from '@/app/actions/user-data';
+import { cardKey, getDueFlashcards, scheduleFlashcard, readFlashcardReviews, REVIEW_STORAGE_KEY, initializeFlashcardDeck, type FlashcardReview, type ReviewCard, type ReviewRating } from '@/lib/spaced-repetition';
+import { getStudyFlashcardsAction, syncStudyFlashcardsAction, deleteStudyFlashcardsAction, recordActivityAction } from '@/app/actions/user-data';
 import { recordActivityLocally } from '@/lib/gamification';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
@@ -61,8 +61,8 @@ export default function FlashcardsPage() {
   const [generatedContent, setGeneratedContent] = useState<GeneratedContent | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
-  const [dueCount, setDueCount] = useState(0);
-  const [dueCards, setDueCards] = useState<ReviewCard[]>([]);
+  const [reviewCards, setReviewCards] = useState<FlashcardReview[]>([]);
+  const dueCount = reviewCards.filter(card => new Date(card.dueAt) <= new Date()).length;
   const [composerOpen, setComposerOpen] = useState(true);
   const [isDrilling, setIsDrilling] = useState(false);
   const [currentCards, setCurrentCards] = useState<GenerateFlashcardsOutput['flashcards']>([]);
@@ -71,6 +71,25 @@ export default function FlashcardsPage() {
   const [refinementPreset, setRefinementPreset] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const generationInProgressRef = useRef(false);
+
+  const syncReviews = useCallback((reviews: FlashcardReview[], sourceTitle = 'Study deck') => {
+    if (!isSignedIn) return;
+    void syncStudyFlashcardsAction(reviews.map(review => ({
+      id: review.id ?? crypto.randomUUID(),
+      sourceTitle: review.sourceTitle ?? sourceTitle,
+      front: review.card.question,
+      back: review.card.answer,
+      ease: review.ease ?? review.easeFactor ?? 2.5,
+      intervalDays: review.intervalDays ?? Math.round((review.intervalMinutes ?? 0) / 1440),
+      reps: review.reps ?? review.repetitions ?? 0,
+      dueAt: review.dueAt ?? review.nextReviewAt,
+      lastReviewedAt: review.lastReviewedAt ?? null,
+      starred: review.starred ?? false,
+    }))).catch(error => {
+      console.error('Could not sync flashcards.', error);
+      toast({ variant: 'destructive', title: 'Flashcards Not Synced', description: 'Your cards remain saved on this device.' });
+    });
+  }, [isSignedIn, toast]);
 
   useEffect(() => {
     setGeneratedContent(null);
@@ -91,55 +110,68 @@ export default function FlashcardsPage() {
   useEffect(() => {
     const refreshDue = () => {
       const reviews = readFlashcardReviews();
-      setDueCount(getDueFlashcardCount(new Date(), reviews));
-      setDueCards(getDueFlashcards(new Date(), reviews));
+      setReviewCards(reviews);
     };
     refreshDue();
+    const timer = window.setInterval(refreshDue, 30_000);
     if (isSignedIn) {
-      void getFlashcardReviewsAction().then(serverReviews => {
-        if (serverReviews.length === 0) return;
-        const local = readFlashcardReviews();
+      void getStudyFlashcardsAction().then(serverCards => {
+        const serverReviews: FlashcardReview[] = serverCards.map(card => ({
+          id: card.id,
+          key: cardKey({ question: card.front, answer: card.back }),
+          sourceTitle: card.sourceTitle,
+          card: { question: card.front, answer: card.back },
+          ease: card.ease,
+          intervalDays: card.intervalDays,
+          reps: card.reps,
+          dueAt: card.dueAt,
+          lastReviewedAt: card.lastReviewedAt,
+          starred: card.starred,
+          updatedAt: card.lastReviewedAt ?? card.dueAt,
+          nextReviewAt: card.dueAt,
+          interval: card.intervalDays,
+          intervalMinutes: card.intervalDays * 1440,
+          repetition: card.reps,
+          repetitions: card.reps,
+          easeFactor: card.ease,
+        }));
+        const local = initializeFlashcardDeck([], new Date(), readFlashcardReviews());
         const merged = new Map<string, FlashcardReview>();
         for (const review of local) merged.set(review.key, review);
         for (const review of serverReviews) {
-          const serverReview = review as FlashcardReview;
-          const existing = merged.get(serverReview.key);
-          if (!existing || new Date(serverReview.updatedAt).getTime() >= new Date(existing.updatedAt).getTime()) {
-            merged.set(serverReview.key, serverReview);
+          const existing = [...merged.values()].find(item =>
+            item.card.question === review.card.question && item.card.answer === review.card.answer,
+          );
+          if (!existing || new Date(review.updatedAt).getTime() >= new Date(existing.updatedAt).getTime()) {
+            merged.set(review.key, review);
           }
         }
         const result = [...merged.values()];
         window.localStorage.setItem(REVIEW_STORAGE_KEY, JSON.stringify(result));
-        setDueCount(getDueFlashcardCount(new Date(), result));
-        setDueCards(getDueFlashcards(new Date(), result));
+        setReviewCards(result);
+        syncReviews(result);
+      }).catch(error => {
+        console.error('Could not load account flashcards.', error);
+        toast({ variant: 'destructive', title: 'Account flashcards unavailable', description: 'Showing cards saved on this device.' });
       });
     }
-  }, [isSignedIn]);
+    return () => window.clearInterval(timer);
+  }, [isSignedIn, syncReviews, toast]);
 
-  const handleReview = async (card: ReviewCard, rating: ReviewRating) => {
+  const handleReview = (card: ReviewCard, rating: ReviewRating) => {
     const reviews = scheduleFlashcard(card, rating);
+    setReviewCards(reviews);
     const scheduled = reviews.find(review => review.card.question === card.question && review.card.answer === card.answer);
-    const interval = scheduled?.intervalMinutes ?? 0;
+    const interval = scheduled?.intervalDays ?? 0;
     const feedback = rating === 'again'
-      ? 'Scheduled: Next review is due immediately'
-      : rating === 'hard'
-        ? 'Scheduled: Next review in 12 hours'
-        : interval >= 24 * 60
-        ? `Scheduled: Next review in ${interval >= 48 * 60 ? Math.round(interval / 1440) : 1} day${interval >= 2880 ? 's' : ''}`
-        : `Scheduled: Next review in ${interval} minutes`;
+      ? 'Scheduled: Next review tomorrow'
+      : `Scheduled: Next review in ${interval} day${interval === 1 ? '' : 's'}`;
     toast({ title: feedback });
-    setDueCount(getDueFlashcardCount(new Date(), reviews));
-    setDueCards(getDueFlashcards(new Date(), reviews));
-    if (isSignedIn) {
-      await syncFlashcardReviewsAction(reviews);
-    }
+    if (scheduled) syncReviews([scheduled], generatedContent?.sourceTopic);
   };
 
   const handleDrillDue = () => {
-    const now = Date.now();
-    const cards = readFlashcardReviews()
-      .filter(review => new Date(review.nextReviewAt ?? review.dueAt).getTime() <= now)
-      .map(review => review.card);
+    const cards = getDueFlashcards(new Date(), reviewCards);
     if (cards.length > 0) {
       const drillingCards = cards.map(card => ({
         question: card.question,
@@ -168,12 +200,37 @@ export default function FlashcardsPage() {
   };
 
   const handleCardsChange = (cards: GenerateFlashcardsOutput['flashcards']) => {
+    const existing = readFlashcardReviews();
+    const previousKeys = new Set(currentCards.map(cardKey));
+    const nextKeys = new Set(cards.map(cardKey));
+    const removedIds = existing
+      .filter(review => previousKeys.has(review.key) && !nextKeys.has(review.key))
+      .map(review => review.id)
+      .filter((id): id is string => Boolean(id));
+    const untouched = existing.filter(review => !previousKeys.has(review.key));
     setCurrentCards(cards);
-    const initialized = initializeFlashcardDeck(cards);
+    const initialized = initializeFlashcardDeck(cards, new Date(), untouched).map(card => ({
+      ...card,
+      sourceTitle: card.sourceTitle ?? generatedContent?.sourceTopic ?? 'Study deck',
+    }));
     window.localStorage.setItem(REVIEW_STORAGE_KEY, JSON.stringify(initialized));
-    setDueCount(getDueFlashcardCount(new Date(), initialized));
-    setDueCards(getDueFlashcards(new Date(), initialized));
-    if (isSignedIn) void syncFlashcardReviewsAction(initialized);
+    setReviewCards(initialized);
+    if (removedIds.length > 0) {
+      void deleteStudyFlashcardsAction(removedIds).catch(error => {
+        console.error('Could not delete flashcards from the account.', error);
+        toast({ variant: 'destructive', title: 'Deleted cards may return after sync.' });
+      });
+    }
+    syncReviews(initialized, generatedContent?.sourceTopic);
+  };
+
+  const handleStarredChange = (card: ReviewCard, starred: boolean) => {
+    const reviews = readFlashcardReviews();
+    const updated = reviews.map(review => review.key === cardKey(card) ? { ...review, starred } : review);
+    window.localStorage.setItem(REVIEW_STORAGE_KEY, JSON.stringify(updated));
+    setReviewCards(updated);
+    const changed = updated.find(review => review.key === cardKey(card));
+    if (changed) syncReviews([changed], generatedContent?.sourceTopic);
   };
 
   const handleSessionComplete = (reviewed: number, remembered: number) => {
@@ -328,16 +385,13 @@ export default function FlashcardsPage() {
 
       const initialized = initializeFlashcardDeck(result.flashcards);
       window.localStorage.setItem(REVIEW_STORAGE_KEY, JSON.stringify(initialized));
-      setDueCount(getDueFlashcardCount(new Date(), initialized));
-      setDueCards(getDueFlashcards(new Date(), initialized));
+      setReviewCards(initialized);
       setIsDrilling(false);
       setCurrentCards(result.flashcards);
       setViewerKey(key => key + 1);
       setGeneratedContent(result);
       setComposerOpen(false);
-      if (isSignedIn) {
-        void syncFlashcardReviewsAction(initialized);
-      }
+      syncReviews(initialized, result.sourceTopic);
       requestAnimationFrame(() => {
         document.getElementById('generated-flashcards')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
@@ -374,6 +428,7 @@ export default function FlashcardsPage() {
         flashcards={currentCards}
         onReview={handleReview}
         onCardsChange={handleCardsChange}
+        onStarredChange={handleStarredChange}
         sourceTopic={generatedContent?.sourceTopic}
         onGenerateNew={() => {
           setComposerOpen(true);

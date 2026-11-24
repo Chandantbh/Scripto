@@ -81,6 +81,9 @@ const evaluateExamFlow = ai.defineFlow(
     if (!output) {
       throw new Error('Failed to evaluate the exam.');
     }
+    if (output.feedbackPerQuestion.length !== input.examQuestions.length) {
+      throw new Error('The exam evaluator did not return feedback for every question.');
+    }
 
     let calculatedScore = 0;
     const totalMarks = input.examQuestions.reduce((acc, q) => acc + q.marks, 0);

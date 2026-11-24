@@ -8,16 +8,15 @@ export const EvaluateExamInputSchema = z.object({
   examQuestions: z.array(ExamQuestionSchema).min(1).max(50).describe("The original list of questions from the generated exam."),
   userAnswers: z.array(z.string().max(2_000)).max(50).describe("The list of answers submitted by the user, in the same order as the questions."),
 })
-  .refine(input => input.examQuestions.length === input.userAnswers.length, 'Submit one answer for every exam question.')
-  .refine(input => input.userAnswers.some(answer => answer.trim().length > 0), 'Enter at least one answer before submitting.');
+  .refine(input => input.examQuestions.length === input.userAnswers.length, 'Submit one answer for every exam question.');
 export type EvaluateExamInput = z.infer<typeof EvaluateExamInputSchema>;
 
 
 export const QuestionFeedbackSchema = z.object({
     isCorrect: z.enum(['correct', 'incorrect', 'partially-correct']).describe("Whether the user's answer was correct, incorrect, or partially correct."),
-    feedback: z.string().max(2_000).describe("A brief explanation for why the answer was incorrect/partially-correct, or a confirmation for a correct answer."),
+    feedback: z.string().trim().min(1).max(2_000).describe("A brief explanation for why the answer was incorrect/partially-correct, or a confirmation for a correct answer."),
     userAnswer: z.string().max(2_000).describe("The original answer submitted by the user for this question."),
-    marksAwarded: z.number().int().max(1_000).optional().describe("For partially correct answers, the marks awarded by the AI. Not needed for fully correct or incorrect answers.")
+    marksAwarded: z.number().int().min(0).max(1_000).optional().describe("For partially correct answers, the marks awarded by the AI. Not needed for fully correct or incorrect answers.")
 });
 export type QuestionFeedback = z.infer<typeof QuestionFeedbackSchema>;
 
@@ -25,7 +24,7 @@ export type QuestionFeedback = z.infer<typeof QuestionFeedbackSchema>;
 export const EvaluateExamOutputSchema = z.object({
   totalScore: z.number().int().describe("The total score the user achieved, calculated programmatically."),
   overallFeedback: z.string().max(5_000).describe("A brief summary of the user's performance."),
-  feedbackPerQuestion: z.array(QuestionFeedbackSchema).max(50).describe("An array of feedback objects, one for each question, in order."),
+  feedbackPerQuestion: z.array(QuestionFeedbackSchema).min(1).max(50).describe("An array of feedback objects, one for each question, in order."),
   grade: z.string().optional().describe("The letter grade for the exam (e.g., A+, B, F)."),
 });
 export type EvaluateExamOutput = z.infer<typeof EvaluateExamOutputSchema>;

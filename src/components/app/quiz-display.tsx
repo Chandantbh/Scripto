@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type FC } from 'react';
-import { Check, X, ChevronsRight, Award, History, ArrowLeft, Volume2, Loader2, Download } from 'lucide-react';
+import { Check, X, ChevronsRight, Award, History, ArrowLeft, Volume2, Loader2, Download, Layers } from 'lucide-react';
 import jsPDF from 'jspdf';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -24,6 +24,7 @@ interface Question {
   question: string;
   options: string[];
   answer: string;
+  explanation?: string;
   emoji?: string;
 }
 
@@ -33,13 +34,17 @@ interface QuizDisplayProps {
   onMissedQuestions?: (questions: Question[]) => void;
   onPlayAudio: (text: string, id: string) => void;
   isSynthesizing: string | null;
+  onConvertMissedQuestions?: (questions: Question[]) => Promise<void>;
 }
 
-const QuizDisplay: FC<QuizDisplayProps> = ({ questions, onQuizSubmit, onMissedQuestions, onPlayAudio, isSynthesizing }) => {
+const QuizDisplay: FC<QuizDisplayProps> = ({ questions, onQuizSubmit, onMissedQuestions, onPlayAudio, isSynthesizing, onConvertMissedQuestions }) => {
   const [selectedAnswers, setSelectedAnswers] = useState<(string | undefined)[]>(Array(questions.length).fill(undefined));
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isReviewing, setIsReviewing] = useState(false);
   const [score, setScore] = useState(0);
+  const [missedQuestions, setMissedQuestions] = useState<Question[]>([]);
+  const [isConvertingMissed, setIsConvertingMissed] = useState(false);
+  const [convertedMissed, setConvertedMissed] = useState(false);
   const [api, setApi] = React.useState<CarouselApi>();
   const [current, setCurrent] = React.useState(0);
   const { toast } = useToast();
@@ -110,6 +115,7 @@ const QuizDisplay: FC<QuizDisplayProps> = ({ questions, onQuizSubmit, onMissedQu
       }
     }
     onMissedQuestions?.(missed);
+    setMissedQuestions(missed);
     setScore(newScore);
     setIsSubmitted(true);
     setIsReviewing(false);
@@ -162,6 +168,28 @@ const QuizDisplay: FC<QuizDisplayProps> = ({ questions, onQuizSubmit, onMissedQu
                 Review Answers
             </Button>
         </div>
+        {missedQuestions.length > 0 && onConvertMissedQuestions && (
+          <Button
+            variant="secondary"
+            className="w-full"
+            disabled={isConvertingMissed || convertedMissed}
+            onClick={async () => {
+              setIsConvertingMissed(true);
+              try {
+                await onConvertMissedQuestions(missedQuestions);
+                setConvertedMissed(true);
+              } catch (error) {
+                console.error('Could not convert missed questions to flashcards.', error);
+                toast({ variant: 'destructive', title: 'Could not save flashcards', description: 'Your missed questions are still available in this quiz.' });
+              } finally {
+                setIsConvertingMissed(false);
+              }
+            }}
+          >
+            <Layers className="mr-2 h-4 w-4" />
+            {convertedMissed ? 'Missed Questions Saved' : isConvertingMissed ? 'Saving Flashcards...' : 'Convert Missed Questions to Flashcards'}
+          </Button>
+        )}
       </div>
     );
   }
@@ -244,6 +272,11 @@ const QuizDisplay: FC<QuizDisplayProps> = ({ questions, onQuizSubmit, onMissedQu
                       );
                     })}
                   </RadioGroup>
+                  {isReviewing && (
+                    <p className="mt-4 rounded-md bg-muted p-3 text-sm text-muted-foreground">
+                      <strong className="text-foreground">Explanation:</strong> {q.explanation || `Correct answer: ${q.answer}`}
+                    </p>
+                  )}
                 </CardContent>
               </Card>
             </CarouselItem>

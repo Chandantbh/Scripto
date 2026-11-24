@@ -1,6 +1,6 @@
 'use client';
 
-export type ReviewRating = 'again' | 'hard' | 'good' | 'easy';
+export type ReviewRating = 'again' | 'good' | 'easy';
 
 export interface ReviewCard {
   question: string;
@@ -11,86 +11,98 @@ export interface ReviewCard {
 
 export interface FlashcardReview {
   key: string;
+  id?: string;
+  sourceTitle?: string;
+  starred?: boolean;
   card: ReviewCard;
-  nextReviewAt: string;
+  ease: number;
+  intervalDays: number;
+  reps: number;
   dueAt: string;
+  lastReviewedAt: string | null;
+  updatedAt: string;
+  nextReviewAt: string;
   interval: number;
   intervalMinutes: number;
   repetition: number;
   repetitions: number;
   easeFactor: number;
-  updatedAt: string;
 }
 
 export const REVIEW_STORAGE_KEY = 'scripto_flashcard_reviews';
+const DAY_MS = 86_400_000;
 
 export function getReviewIntervalMinutes(rating: ReviewRating): number {
-  return rating === 'again'
-    ? 0
-    : rating === 'hard'
-      ? 12 * 60
-      : rating === 'good'
-        ? 24 * 60
-        : 4 * 24 * 60;
+  return rating === 'again' ? DAY_MS / 60_000 : rating === 'good' ? DAY_MS / 60_000 : 4 * DAY_MS / 60_000;
 }
 
 export function formatReviewInterval(intervalMinutes: number): string {
   if (intervalMinutes <= 0) return 'Now';
   if (intervalMinutes < 60) return `${intervalMinutes}m`;
-  if (intervalMinutes < 24 * 60) {
-    const hours = Math.round(intervalMinutes / 60);
-    return `${hours}h`;
-  }
-  const days = Math.round(intervalMinutes / (24 * 60));
-  return `${days}d`;
+  if (intervalMinutes < 24 * 60) return `${Math.round(intervalMinutes / 60)}h`;
+  return `${Math.round(intervalMinutes / (24 * 60))}d`;
 }
 
 export function getCardScheduleLabel(card: ReviewCard, now = new Date(), reviews = readFlashcardReviews()): string {
   const review = reviews.find(item => item.key === cardKey(card));
   if (!review) return 'New card';
-  const next = new Date(review.nextReviewAt ?? review.dueAt).getTime();
+  const next = new Date(review.dueAt ?? review.nextReviewAt).getTime();
   if (next <= now.getTime()) return 'Due now';
-  const minutes = Math.max(0, Math.ceil((next - now.getTime()) / (60 * 1000)));
-  return `Next review in ${formatReviewInterval(minutes)}`;
+  return `Next review in ${formatReviewInterval(Math.ceil((next - now.getTime()) / 60_000))}`;
 }
 
-export function getReviewDueAt(card: ReviewCard, rating: ReviewRating, now = new Date(), existing?: FlashcardReview): FlashcardReview {
-  const easeFactor = Math.max(
+export function reviewCard(
+  card: ReviewCard,
+  grade: ReviewRating,
+  now = new Date(),
+  existing?: Partial<FlashcardReview>,
+): FlashcardReview {
+  const q = grade === 'again' ? 1 : grade === 'good' ? 4 : 5;
+  const previousReps = existing?.reps ?? existing?.repetition ?? existing?.repetitions ?? 0;
+  const previousInterval = existing?.intervalDays
+    ?? (existing?.intervalMinutes === undefined ? 0 : existing.intervalMinutes / (24 * 60));
+  const ease = Math.max(
     1.3,
-    (existing?.easeFactor ?? 2.5)
-      + (rating === 'again' ? -0.2 : rating === 'hard' ? -0.15 : rating === 'good' ? 0 : 0.15),
+    (existing?.ease ?? existing?.easeFactor ?? 2.5)
+      + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02)),
   );
-  let intervalMinutes: number;
-  let repetition: number;
+  const intervalDays = grade === 'again'
+    ? 1
+    : grade === 'good'
+      ? previousReps === 0 ? 1 : previousReps === 1 ? 6 : Math.round(previousInterval * ease)
+      : previousReps === 0 ? 4 : previousReps === 1 ? 8 : Math.round(previousInterval * ease * 1.3);
+  const reps = grade === 'again' ? 0 : previousReps + 1;
+  const dueAt = new Date(now.getTime() + intervalDays * DAY_MS).toISOString();
+  const key = cardKey(card);
 
-  if (rating === 'again') {
-    intervalMinutes = 0;
-    repetition = 0;
-  } else if (rating === 'hard') {
-    repetition = (existing?.repetition ?? existing?.repetitions ?? 0) + 1;
-    intervalMinutes = repetition === 1 ? 12 * 60 : Math.max(12 * 60, Math.round((existing?.intervalMinutes ?? 12 * 60) * 1.2));
-  } else if (rating === 'good') {
-    repetition = (existing?.repetition ?? existing?.repetitions ?? 0) + 1;
-    intervalMinutes = repetition === 1 ? 24 * 60 : Math.round((existing?.intervalMinutes ?? 24 * 60) * easeFactor);
-  } else {
-    repetition = (existing?.repetition ?? existing?.repetitions ?? 0) + 1;
-    intervalMinutes = repetition === 1
-      ? 4 * 24 * 60
-      : Math.max(6 * 24 * 60, Math.round((existing?.intervalMinutes ?? 4 * 24 * 60) * easeFactor));
-  }
-  const nextReviewAt = new Date(now.getTime() + intervalMinutes * 60 * 1000).toISOString();
   return {
-    key: cardKey(card),
+    key,
+    id: existing?.id ?? crypto.randomUUID(),
+    sourceTitle: existing?.sourceTitle,
+    starred: existing?.starred ?? false,
     card: { ...card },
-    nextReviewAt,
-    dueAt: nextReviewAt,
-    interval: intervalMinutes,
-    intervalMinutes,
-    repetition,
-    repetitions: repetition,
-    easeFactor,
+    ease,
+    intervalDays,
+    reps,
+    dueAt,
+    lastReviewedAt: now.toISOString(),
     updatedAt: now.toISOString(),
+    nextReviewAt: dueAt,
+    interval: intervalDays,
+    intervalMinutes: intervalDays * 24 * 60,
+    repetition: reps,
+    repetitions: reps,
+    easeFactor: ease,
   };
+}
+
+export function getReviewDueAt(
+  card: ReviewCard,
+  rating: ReviewRating,
+  now = new Date(),
+  existing?: Partial<FlashcardReview>,
+): FlashcardReview {
+  return reviewCard(card, rating, now, existing);
 }
 
 export function cardKey(card: ReviewCard): string {
@@ -105,7 +117,7 @@ export function cardKey(card: ReviewCard): string {
 export function readFlashcardReviews(): FlashcardReview[] {
   if (typeof window === 'undefined') return [];
   try {
-    const value = JSON.parse(window.localStorage.getItem(REVIEW_STORAGE_KEY) ?? '[]');
+    const value: unknown = JSON.parse(window.localStorage.getItem(REVIEW_STORAGE_KEY) ?? '[]');
     return Array.isArray(value) ? value.filter(isFlashcardReview) : [];
   } catch {
     return [];
@@ -115,37 +127,30 @@ export function readFlashcardReviews(): FlashcardReview[] {
 function isFlashcardReview(value: unknown): value is FlashcardReview {
   if (!value || typeof value !== 'object') return false;
   const review = value as Record<string, unknown>;
+  const card = review.card as Record<string, unknown> | undefined;
   return typeof review.key === 'string'
-    && typeof (review.nextReviewAt ?? review.dueAt) === 'string'
-    && typeof review.intervalMinutes === 'number'
-    && typeof review.repetitions === 'number'
-    && typeof review.updatedAt === 'string'
-    && !!review.card
-    && typeof (review.card as ReviewCard).question === 'string'
-    && typeof (review.card as ReviewCard).answer === 'string';
+    && typeof (review.dueAt ?? review.nextReviewAt) === 'string'
+    && typeof (review.intervalDays ?? review.intervalMinutes) === 'number'
+    && typeof (review.reps ?? review.repetitions) === 'number'
+    && !!card
+    && typeof card.question === 'string'
+    && typeof card.answer === 'string';
 }
 
 export function getDueFlashcards(now = new Date(), reviews = readFlashcardReviews()): ReviewCard[] {
-  const cutoff = now.getTime();
-  const due = reviews.filter(review => new Date(review.nextReviewAt ?? review.dueAt).getTime() <= cutoff);
-  return due.map(review => review.card);
+  return reviews
+    .filter(review => new Date(review.dueAt ?? review.nextReviewAt).getTime() <= now.getTime())
+    .map(review => review.card);
 }
 
 export function getDueFlashcardCount(now = new Date(), reviews = readFlashcardReviews()): number {
-  return reviews.filter(review => new Date(review.nextReviewAt ?? review.dueAt).getTime() <= now.getTime()).length;
+  return reviews.filter(review => new Date(review.dueAt ?? review.nextReviewAt).getTime() <= now.getTime()).length;
 }
 
 export function scheduleFlashcard(card: ReviewCard, rating: ReviewRating, now = new Date()): FlashcardReview[] {
   const reviews = readFlashcardReviews();
   const key = cardKey(card);
-  const existing = reviews.find(review => review.key === key);
-  const next = getReviewDueAt({
-    question: card.question,
-    answer: card.answer,
-    emoji: card.emoji,
-    color: card.color,
-  }, rating, now, existing);
-
+  const next = reviewCard(card, rating, now, reviews.find(review => review.key === key));
   const updated = [next, ...reviews.filter(review => review.key !== key)];
   if (typeof window !== 'undefined') {
     window.localStorage.setItem(REVIEW_STORAGE_KEY, JSON.stringify(updated));
@@ -153,30 +158,49 @@ export function scheduleFlashcard(card: ReviewCard, rating: ReviewRating, now = 
   return updated;
 }
 
-export function initializeFlashcardReview(card: ReviewCard, now = new Date(), key?: string): FlashcardReview {
-  const resolvedKey = key ?? cardKey(card);
-  const nextReviewAt = now.toISOString();
+export function initializeFlashcardReview(card: ReviewCard, now = new Date(), key = cardKey(card)): FlashcardReview {
   return {
-    key: resolvedKey,
+    key,
+    id: crypto.randomUUID(),
+    starred: false,
     card: { ...card },
-    nextReviewAt,
-    dueAt: nextReviewAt,
+    ease: 2.5,
+    intervalDays: 0,
+    reps: 0,
+    dueAt: now.toISOString(),
+    lastReviewedAt: null,
+    updatedAt: now.toISOString(),
+    nextReviewAt: now.toISOString(),
     interval: 0,
     intervalMinutes: 0,
     repetition: 0,
     repetitions: 0,
     easeFactor: 2.5,
-    updatedAt: now.toISOString(),
   };
 }
 
-export function initializeFlashcardDeck(cards: ReviewCard[], now = new Date(), existing: FlashcardReview[] = readFlashcardReviews()): FlashcardReview[] {
-  const byKey = new Map(existing.map(review => [review.key, review]));
-  const initialized = cards.map(card => {
+export function initializeFlashcardDeck(
+  cards: ReviewCard[],
+  now = new Date(),
+  existing: FlashcardReview[] = readFlashcardReviews(),
+): FlashcardReview[] {
+  const byKey = new Map(existing.map(review => [
+    review.key,
+    review.id ? review : { ...review, id: crypto.randomUUID() },
+  ]));
+  const initializedByKey = new Map<string, FlashcardReview>();
+  for (const card of cards) {
     const key = cardKey(card);
-    return byKey.get(key) ?? initializeFlashcardReview(card, now, key);
-  });
+    if (!initializedByKey.has(key)) {
+      initializedByKey.set(key, byKey.get(key) ?? initializeFlashcardReview(card, now));
+    }
+  }
+  const initialized = [...initializedByKey.values()];
   const keys = new Set(initialized.map(review => review.key));
-  const untouched = existing.filter(review => !keys.has(review.key));
-  return [...initialized, ...untouched];
+  return [
+    ...initialized,
+    ...existing
+      .filter(review => !keys.has(review.key))
+      .map(review => review.id ? review : { ...review, id: crypto.randomUUID() }),
+  ];
 }

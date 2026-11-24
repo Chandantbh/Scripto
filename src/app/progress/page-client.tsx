@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
-import { History, Trash2, Flame, Star, TrendingUp, ClipboardCheck, FileQuestion, Award } from 'lucide-react';
+import { History, Trash2, Flame, Star, TrendingUp, ClipboardCheck, FileQuestion, Award, BookOpen } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,7 +19,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
-import { clearUserHistoryAction, getUserProgressAction } from '@/app/actions/user-data';
+import { clearUserHistoryAction, getTopicMasteryAction, getUserProgressAction } from '@/app/actions/user-data';
 import {
   clearLocalProgress,
   createEmptyGamificationStats,
@@ -30,6 +30,9 @@ import {
 import { useAuth } from '@clerk/nextjs';
 import { requestGuestAuth } from '@/lib/guest-mode';
 
+const TOPIC_MASTERY_KEY = 'scripto_topic_mastery';
+type TopicMastery = { topic: string; masteryScore: number; updatedAt: string };
+
 export default function ProgressPage() {
   const { isLoaded, isSignedIn } = useAuth();
   const [activityHistory, setActivityHistory] = useState<ActivityRecord[]>([]);
@@ -37,6 +40,7 @@ export default function ProgressPage() {
   const [isClient, setIsClient] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [syncWarning, setSyncWarning] = useState(false);
+  const [topicMastery, setTopicMastery] = useState<TopicMastery[]>([]);
 
   useEffect(() => {
     if (isLoaded && !isSignedIn) requestGuestAuth('progress');
@@ -46,17 +50,23 @@ export default function ProgressPage() {
     let active = true;
     const loadProgress = async () => {
       try {
-        const accountProgress = await getUserProgressAction();
+        const [accountProgress, accountMastery] = await Promise.all([
+          getUserProgressAction(),
+          getTopicMasteryAction(),
+        ]);
         if (!active) return;
         const progress = accountProgress ?? readLocalProgress();
         setActivityHistory(progress.history);
         setStats(progress.stats);
+        const localMastery = readLocalTopicMastery();
+        setTopicMastery(accountMastery.length ? accountMastery : localMastery);
       } catch (error) {
         console.error('Could not load account progress.', error);
         if (!active) return;
         const progress = readLocalProgress();
         setActivityHistory(progress.history);
         setStats(progress.stats);
+        setTopicMastery(readLocalTopicMastery());
         setSyncWarning(true);
       } finally {
         if (active) setIsClient(true);
@@ -74,8 +84,10 @@ export default function ProgressPage() {
     try {
       await clearUserHistoryAction();
       clearLocalProgress();
+      window.localStorage.removeItem(TOPIC_MASTERY_KEY);
       setActivityHistory([]);
       setStats(createEmptyGamificationStats());
+      setTopicMastery([]);
       setSyncWarning(false);
     } catch (error) {
       console.error('Could not clear account progress.', error);
@@ -197,6 +209,27 @@ export default function ProgressPage() {
             </Card>
         </div>
 
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><BookOpen className="h-5 w-5" />Topic Mastery</CardTitle>
+            <CardDescription>Mastery blends each new score with your previous results.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {topicMastery.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Complete a quiz or exam to start building topic mastery.</p>
+            ) : (
+              <div className="space-y-3">
+                {topicMastery.map(item => (
+                  <div key={item.topic} className="flex items-center justify-between gap-4">
+                    <span className="truncate font-medium">{item.topic}</span>
+                    <span className="shrink-0 text-sm text-muted-foreground">{Math.round(item.masteryScore)}%</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -234,4 +267,15 @@ export default function ProgressPage() {
         </Card>
     </div>
   );
+}
+
+function readLocalTopicMastery(): TopicMastery[] {
+  try {
+    const stored: unknown = JSON.parse(window.localStorage.getItem(TOPIC_MASTERY_KEY) ?? '[]');
+    return Array.isArray(stored) ? stored.filter((item): item is TopicMastery =>
+      typeof item?.topic === 'string' && typeof item?.masteryScore === 'number',
+    ) : [];
+  } catch {
+    return [];
+  }
 }

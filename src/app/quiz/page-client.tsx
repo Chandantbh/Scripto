@@ -5,7 +5,8 @@ import { useEffect, useState, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { BrainCircuit, Loader2, Wand2, FileQuestion, BookOpen, Upload, Download, FileType, Youtube } from 'lucide-react';
 
-import { generateQuiz, type GenerateQuizOutput, type GenerateQuizInput } from '@/ai/flows/generate-quiz';
+import { generateQuiz, type GenerateQuizInput } from '@/ai/flows/generate-quiz';
+import { type QuizQuestion } from '@/ai/schemas/quiz-schemas';
 import { generateFromTopic } from '@/ai/flows/generate-from-topic';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
 
@@ -20,7 +21,7 @@ import { Input } from '@/components/ui/input';
 import { extractTextFromFile } from '@/lib/file-parser';
 import AudioPlayer from '@/components/app/audio-player';
 import { achievements } from '@/lib/achievements';
-import { recordActivityAction } from '@/app/actions/user-data';
+import { recordActivityAction, recordStudyAttemptAction, syncStudyFlashcardsAction } from '@/app/actions/user-data';
 import { recordActivityLocally, type ActivityProgressUpdate, type ActivityInput } from '@/lib/gamification';
 import AIErrorBanner from '@/components/app/ai-error-banner';
 import { classifyAIError, unwrapAIActionResult } from '@/lib/ai-action-result';
@@ -29,6 +30,8 @@ import { readStudyPreferences } from '@/components/app/settings-dialog';
 import { useAuth } from '@clerk/nextjs';
 import { reserveGuestGeneration } from '@/lib/guest-mode';
 import { readWeakTopics, recordWeakTopics, WEAK_TOPICS_STORAGE_KEY } from '@/lib/weak-topics';
+import { initializeFlashcardDeck, readFlashcardReviews, REVIEW_STORAGE_KEY } from '@/lib/spaced-repetition';
+import { calculateTopicMastery } from '@/lib/topic-mastery';
 
 type InputMode = 'from-text' | 'from-topic' | 'from-youtube' | 'from-file';
 
@@ -36,6 +39,7 @@ interface Question {
   question: string;
   options: string[];
   answer: string;
+  explanation?: string;
   emoji?: string;
 }
 
@@ -64,6 +68,8 @@ export default function QuizPage() {
   const [composerOpen, setComposerOpen] = useState(true);
   const [weakTopics, setWeakTopics] = useState(() => readWeakTopics());
   const [weakMode, setWeakMode] = useState(false);
+  const missedQuestionsRef = useRef<Question[]>([]);
+  const quizStartedAtRef = useRef(Date.now());
 
   useEffect(() => {
     const mode = searchParams.get('mode');
@@ -94,6 +100,7 @@ export default function QuizPage() {
               question: item.question,
               options: [item.answer, 'Review this concept again', 'None of the above', 'Unsure'],
               answer: item.answer,
+              explanation: item.answer,
               emoji: '🎯',
             })),
           },
@@ -117,6 +124,7 @@ export default function QuizPage() {
           question: item.question,
           options: [item.answer, 'Review this concept again', 'None of the above', 'Unsure'],
           answer: item.answer,
+          explanation: item.answer,
           emoji: '🎯',
         })),
       },
@@ -172,7 +180,7 @@ export default function QuizPage() {
         if (topicResult.quiz && topicResult.quiz.questions) {
            result = { 
                 notes: topicResult.notes,
-                quiz: topicResult.quiz,
+                quiz: { questions: mapQuizQuestions(topicResult.quiz.questions) },
                 flashcards: topicResult.flashcards,
                 imageHint: topicResult.imageHint,
                 sourceTopic: topic,
@@ -221,8 +229,9 @@ export default function QuizPage() {
           ...quizInput,
           questionCount: readStudyPreferences().quizLength,
         }));
-        result = { quiz: { questions: textResult.questions } }
+        result = { quiz: { questions: mapQuizQuestions(textResult.questions) } }
       }
+      quizStartedAtRef.current = Date.now();
       setGeneratedContent(result);
       setComposerOpen(false);
     } catch (error) {
@@ -238,9 +247,8 @@ export default function QuizPage() {
   // Removed unused handleFileUpload
   
   const saveQuizResult = async (score: number, totalQuestions: number) => {
-    let resultTopic = 'Custom Content';
-    if(inputMode === 'from-topic') resultTopic = topic;
-    if(inputMode === 'from-youtube') resultTopic = 'YouTube Video';
+    const resultTopic = generatedContent?.sourceTopic
+      || (inputMode === 'from-topic' ? topic : inputMode === 'from-youtube' ? 'YouTube Video' : 'Custom Content');
 
     const activity: ActivityInput = {
       type: 'quiz',
@@ -274,6 +282,24 @@ export default function QuizPage() {
     }
 
     if (!update) return;
+    const masteryInput = {
+      sourceTitle: resultTopic,
+      mode: 'quiz' as const,
+      score,
+      total: totalQuestions,
+      durationSeconds: Math.max(0, Math.floor((Date.now() - quizStartedAtRef.current) / 1000)),
+      missedQuestions: missedQuestionsRef.current.map(question => ({
+        prompt: question.question,
+        explanation: question.explanation,
+      })),
+    };
+    try {
+      await recordStudyAttemptAction(masteryInput);
+    } catch (error) {
+      console.error('Could not sync quiz attempt and topic mastery.', error);
+      syncUnavailable = true;
+    }
+    updateLocalTopicMastery(resultTopic, (score / totalQuestions) * 100);
     toast({
       title: `+${update.earnedXp} XP Earned!`,
       description: syncUnavailable
@@ -314,12 +340,48 @@ export default function QuizPage() {
         <QuizDisplay 
             questions={generatedContent.quiz.questions} 
             onQuizSubmit={saveQuizResult}
-            onMissedQuestions={missed => recordWeakTopics(missed.map(question => ({
-              question: question.question,
-              answer: question.answer,
-              concept: generatedContent.sourceTopic || 'Quiz',
-              source: 'quiz',
-            })))}
+            onMissedQuestions={missed => {
+              missedQuestionsRef.current = missed;
+              recordWeakTopics(missed.map(question => ({
+                question: question.question,
+                answer: question.answer,
+                concept: generatedContent.sourceTopic || 'Quiz',
+                source: 'quiz',
+              })));
+            }}
+            onConvertMissedQuestions={async missed => {
+              const now = new Date();
+              const cards = missed.map(question => ({
+                question: question.question,
+                answer: `${question.answer}\n\n${question.explanation}`,
+              }));
+              const existing = readFlashcardReviews();
+              const knownKeys = new Set(existing.map(review => review.key));
+              const initializedDeck = initializeFlashcardDeck(cards, now, existing);
+              const deck = initializedDeck.map(review => knownKeys.has(review.key)
+                ? review
+                : { ...review, sourceTitle: generatedContent.sourceTopic || 'Quiz review' });
+              window.localStorage.setItem(REVIEW_STORAGE_KEY, JSON.stringify(deck));
+              const newCards = deck.filter(review => !knownKeys.has(review.key));
+              try {
+                await syncStudyFlashcardsAction(newCards.map(review => ({
+                  id: review.id ?? crypto.randomUUID(),
+                  sourceTitle: review.sourceTitle ?? generatedContent.sourceTopic ?? 'Quiz review',
+                  front: review.card.question,
+                  back: review.card.answer,
+                  ease: review.ease,
+                  intervalDays: review.intervalDays,
+                  reps: review.reps,
+                  dueAt: review.dueAt,
+                  lastReviewedAt: review.lastReviewedAt ?? null,
+                  starred: review.starred ?? false,
+                })));
+                toast({ title: 'Missed questions added to flashcards.' });
+              } catch (error) {
+                console.error('Could not sync missed-question flashcards.', error);
+                toast({ title: 'Flashcards saved on this device', description: 'Account sync is unavailable.', variant: 'destructive' });
+              }
+            }}
             onPlayAudio={handlePlayAudio}
             isSynthesizing={isSynthesizing}
         />
@@ -430,4 +492,34 @@ export default function QuizPage() {
         </div>
     </div>
   );
+}
+
+function mapQuizQuestions(questions: QuizQuestion[]): Question[] {
+  return questions.map(question => ({
+    question: question.prompt,
+    options: question.options,
+    answer: question.options[question.correctIndex],
+    explanation: question.explanation,
+    emoji: question.emoji,
+  }));
+}
+
+function updateLocalTopicMastery(topicName: string, latestScore: number) {
+  const key = 'scripto_topic_mastery';
+  try {
+    const stored: unknown = JSON.parse(window.localStorage.getItem(key) ?? '[]');
+    const mastery: Array<{ topic: string; masteryScore: number; updatedAt: string }> =
+      Array.isArray(stored) ? stored.filter(item =>
+        item && typeof item.topic === 'string' && typeof item.masteryScore === 'number',
+      ) : [];
+    const previous = mastery.find(item => item.topic === topicName);
+    const newMastery = calculateTopicMastery(previous?.masteryScore ?? 0, latestScore);
+    const updated = [
+      { topic: topicName, masteryScore: newMastery, updatedAt: new Date().toISOString() },
+      ...mastery.filter(item => item.topic !== topicName),
+    ];
+    window.localStorage.setItem(key, JSON.stringify(updated));
+  } catch (error) {
+    console.error('Could not save topic mastery on this device.', error);
+  }
 }

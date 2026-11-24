@@ -9,7 +9,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "tsx --test src/ai/model-retry.test.ts src/lib/spaced-repetition.test.ts src/lib/rate-limit.test.ts",
+    "test": "tsx --test src/ai/model-retry.test.ts src/ai/quiz-schemas.test.ts src/lib/spaced-repetition.test.ts src/lib/topic-mastery.test.ts src/lib/rate-limit.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -12,6 +12,7 @@ import {
   type UserProgress,
 } from '@/lib/gamification';
 import { getSupabaseServerClient } from '@/lib/supabase-server';
+import { calculateTopicMastery } from '@/lib/topic-mastery';
 import type { NoteSourceType, SavedNote } from '@/types/user-data';
 
 const activitySchema = z
@@ -45,6 +46,30 @@ const flashcardReviewSchema = z.object({
   repetitions: z.number().int().min(0).max(10000),
   updatedAt: z.string().datetime(),
 });
+
+const studyFlashcardSchema = z.object({
+  id: z.string().uuid(),
+  sourceTitle: z.string().trim().min(1).max(200),
+  front: z.string().trim().min(1).max(2_000),
+  back: z.string().trim().min(1).max(5_000),
+  ease: z.number().finite().min(1.3),
+  intervalDays: z.number().int().min(0).max(2_147_483_647),
+  reps: z.number().int().min(0).max(2_147_483_647),
+  dueAt: z.string().datetime(),
+  lastReviewedAt: z.string().datetime().nullable(),
+  starred: z.boolean().default(false),
+});
+
+const studyFlashcardBatchSchema = z.array(studyFlashcardSchema).max(500);
+
+const studyAttemptSchema = z.object({
+  sourceTitle: z.string().trim().min(1).max(200),
+  mode: z.enum(['quiz', 'exam']),
+  score: z.number().finite().min(0),
+  total: z.number().finite().gt(0),
+  durationSeconds: z.number().int().min(0).max(86_400),
+  missedQuestions: z.array(z.unknown()).max(100),
+}).refine(attempt => attempt.score <= attempt.total);
 
 const studyPackSchema = z.object({
   title: z.string().trim().min(1).max(200),
@@ -179,6 +204,18 @@ export async function clearUserHistoryAction(): Promise<boolean | null> {
     .delete()
     .eq('user_id', userId);
   if (historyError) reportDatabaseError('clearing activity history', historyError);
+
+  const { error: attemptsError } = await client
+    .from('study_attempts')
+    .delete()
+    .eq('user_id', userId);
+  if (attemptsError) reportDatabaseError('clearing study attempts', attemptsError);
+
+  const { error: masteryError } = await client
+    .from('topic_mastery')
+    .delete()
+    .eq('user_id', userId);
+  if (masteryError) reportDatabaseError('clearing topic mastery', masteryError);
 
   const { error: statsError } = await client
     .from('user_stats')
@@ -332,6 +369,155 @@ export async function getFlashcardReviewsAction(): Promise<Array<z.infer<typeof 
     }));
   } catch (error) {
     console.warn('Scripto flashcard reviews unavailable.', getDatabaseErrorDetails(error));
+    return [];
+  }
+}
+
+export async function syncStudyFlashcardsAction(
+  flashcards: Array<z.infer<typeof studyFlashcardSchema>>,
+): Promise<boolean> {
+  const { userId } = await auth();
+  if (!userId) return false;
+
+  const parsed = studyFlashcardBatchSchema.safeParse(flashcards);
+  if (!parsed.success) throw new Error('Flashcard data is invalid.');
+  if (parsed.data.length === 0) return true;
+
+  const client = requireSupabaseClient();
+  const ids = parsed.data.map(card => card.id);
+  const { data: existingCards, error: existingError } = await client
+    .from('flashcards')
+    .select('id, user_id')
+    .in('id', ids);
+  if (existingError) reportDatabaseError('validating flashcard ownership', existingError);
+  if ((existingCards ?? []).some(card => card.user_id !== userId)) {
+    throw new Error('Flashcard data is invalid.');
+  }
+  const { error } = await client.from('flashcards').upsert(
+    parsed.data.map(card => ({
+      id: card.id,
+      user_id: userId,
+      source_title: card.sourceTitle,
+      front: card.front,
+      back: card.back,
+      ease: card.ease,
+      interval_days: card.intervalDays,
+      reps: card.reps,
+      due_at: card.dueAt,
+      last_reviewed_at: card.lastReviewedAt,
+      starred: card.starred,
+    })),
+    { onConflict: 'id' },
+  );
+  if (error) reportDatabaseError('syncing flashcards', error);
+  return true;
+}
+
+export async function getStudyFlashcardsAction(): Promise<Array<z.infer<typeof studyFlashcardSchema>>> {
+  const { userId } = await auth();
+  if (!userId) return [];
+
+  try {
+    const client = requireSupabaseClient();
+    const { data, error } = await client
+      .from('flashcards')
+      .select('id, source_title, front, back, ease, interval_days, reps, due_at, last_reviewed_at, starred')
+      .eq('user_id', userId)
+      .order('due_at', { ascending: true });
+    if (error) {
+      console.warn('Scripto flashcards unavailable.', getDatabaseErrorDetails(error));
+      return [];
+    }
+    return (data ?? []).map(card => ({
+      id: card.id,
+      sourceTitle: card.source_title,
+      front: card.front,
+      back: card.back,
+      ease: Number(card.ease),
+      intervalDays: Number(card.interval_days),
+      reps: Number(card.reps),
+      dueAt: card.due_at,
+      lastReviewedAt: card.last_reviewed_at,
+      starred: card.starred,
+    }));
+  } catch (error) {
+    console.warn('Scripto flashcards unavailable.', getDatabaseErrorDetails(error));
+    return [];
+  }
+}
+
+export async function deleteStudyFlashcardsAction(ids: string[]): Promise<void> {
+  const parsed = z.array(z.string().uuid()).max(500).safeParse(ids);
+  if (!parsed.success) throw new Error('Flashcard IDs are invalid.');
+  const { userId } = await auth();
+  if (!userId || parsed.data.length === 0) return;
+  const client = requireSupabaseClient();
+  const { error } = await client.from('flashcards')
+    .delete()
+    .in('id', parsed.data)
+    .eq('user_id', userId);
+  if (error) reportDatabaseError('deleting flashcards', error);
+}
+
+export async function recordStudyAttemptAction(input: z.infer<typeof studyAttemptSchema>): Promise<number | null> {
+  const parsed = studyAttemptSchema.safeParse(input);
+  if (!parsed.success) throw new Error('Study attempt details are invalid.');
+  const { userId } = await auth();
+  if (!userId) return null;
+
+  const client = requireSupabaseClient();
+  const { error: attemptError } = await client.from('study_attempts').insert({
+    user_id: userId,
+    source_title: parsed.data.sourceTitle,
+    mode: parsed.data.mode,
+    score: parsed.data.score,
+    total: parsed.data.total,
+    duration_seconds: parsed.data.durationSeconds,
+    missed_questions: parsed.data.missedQuestions,
+  });
+  if (attemptError) reportDatabaseError('recording a study attempt', attemptError);
+
+  const latestScore = (parsed.data.score / parsed.data.total) * 100;
+  const { data: existing, error: masteryReadError } = await client
+    .from('topic_mastery')
+    .select('mastery_score')
+    .eq('user_id', userId)
+    .eq('topic', parsed.data.sourceTitle)
+    .maybeSingle();
+  if (masteryReadError) reportDatabaseError('loading topic mastery', masteryReadError);
+
+  const mastery = calculateTopicMastery(Number(existing?.mastery_score ?? 0), latestScore);
+  const { error: masteryError } = await client.from('topic_mastery').upsert({
+    user_id: userId,
+    topic: parsed.data.sourceTitle,
+    mastery_score: mastery,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'user_id,topic' });
+  if (masteryError) reportDatabaseError('updating topic mastery', masteryError);
+  return mastery;
+}
+
+export async function getTopicMasteryAction(): Promise<Array<{ topic: string; masteryScore: number; updatedAt: string }>> {
+  const { userId } = await auth();
+  if (!userId) return [];
+  try {
+    const client = requireSupabaseClient();
+    const { data, error } = await client
+      .from('topic_mastery')
+      .select('topic, mastery_score, updated_at')
+      .eq('user_id', userId)
+      .order('mastery_score', { ascending: false });
+    if (error) {
+      console.warn('Scripto topic mastery unavailable.', getDatabaseErrorDetails(error));
+      return [];
+    }
+    return (data ?? []).map(row => ({
+      topic: row.topic,
+      masteryScore: Number(row.mastery_score),
+      updatedAt: row.updated_at,
+    }));
+  } catch (error) {
+    console.warn('Scripto topic mastery unavailable.', getDatabaseErrorDetails(error));
     return [];
   }
 }

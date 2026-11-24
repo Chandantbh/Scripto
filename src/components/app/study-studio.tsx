@@ -98,8 +98,8 @@ export default function StudyStudio({
       if (kind === 'quiz') {
         const result = unwrapAIActionResult(await generateQuiz({ text: source, questionCount: 5 }));
         setItems(result.questions.map(question => ({
-          question: question.question,
-          answer: question.answer,
+          question: question.prompt,
+          answer: question.options[question.correctIndex],
         })));
         setMastery(value => Math.min(100, value + 12));
       } else {
