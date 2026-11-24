@@ -1,6 +1,6 @@
 'use client';
 
-export type ReviewRating = 'again' | 'good' | 'easy';
+export type ReviewRating = 'again' | 'hard' | 'good' | 'easy';
 
 export interface ReviewCard {
   question: string;
@@ -25,23 +25,58 @@ export interface FlashcardReview {
 export const REVIEW_STORAGE_KEY = 'scripto_flashcard_reviews';
 
 export function getReviewIntervalMinutes(rating: ReviewRating): number {
-  return rating === 'again' ? 0 : rating === 'good' ? 24 * 60 : 4 * 24 * 60;
+  return rating === 'again'
+    ? 0
+    : rating === 'hard'
+      ? 12 * 60
+      : rating === 'good'
+        ? 24 * 60
+        : 4 * 24 * 60;
+}
+
+export function formatReviewInterval(intervalMinutes: number): string {
+  if (intervalMinutes <= 0) return 'Now';
+  if (intervalMinutes < 60) return `${intervalMinutes}m`;
+  if (intervalMinutes < 24 * 60) {
+    const hours = Math.round(intervalMinutes / 60);
+    return `${hours}h`;
+  }
+  const days = Math.round(intervalMinutes / (24 * 60));
+  return `${days}d`;
+}
+
+export function getCardScheduleLabel(card: ReviewCard, now = new Date(), reviews = readFlashcardReviews()): string {
+  const review = reviews.find(item => item.key === cardKey(card));
+  if (!review) return 'New card';
+  const next = new Date(review.nextReviewAt ?? review.dueAt).getTime();
+  if (next <= now.getTime()) return 'Due now';
+  const minutes = Math.max(0, Math.ceil((next - now.getTime()) / (60 * 1000)));
+  return `Next review in ${formatReviewInterval(minutes)}`;
 }
 
 export function getReviewDueAt(card: ReviewCard, rating: ReviewRating, now = new Date(), existing?: FlashcardReview): FlashcardReview {
-  const easeFactor = Math.max(1.3, (existing?.easeFactor ?? 2.5) - (rating === 'again' ? 0.2 : 0));
+  const easeFactor = Math.max(
+    1.3,
+    (existing?.easeFactor ?? 2.5)
+      + (rating === 'again' ? -0.2 : rating === 'hard' ? -0.15 : rating === 'good' ? 0 : 0.15),
+  );
   let intervalMinutes: number;
   let repetition: number;
 
   if (rating === 'again') {
     intervalMinutes = 0;
     repetition = 0;
+  } else if (rating === 'hard') {
+    repetition = (existing?.repetition ?? existing?.repetitions ?? 0) + 1;
+    intervalMinutes = repetition === 1 ? 12 * 60 : Math.max(12 * 60, Math.round((existing?.intervalMinutes ?? 12 * 60) * 1.2));
   } else if (rating === 'good') {
     repetition = (existing?.repetition ?? existing?.repetitions ?? 0) + 1;
-    intervalMinutes = repetition === 1 ? 24 * 60 : 6 * 24 * 60;
+    intervalMinutes = repetition === 1 ? 24 * 60 : Math.round((existing?.intervalMinutes ?? 24 * 60) * easeFactor);
   } else {
     repetition = (existing?.repetition ?? existing?.repetitions ?? 0) + 1;
-    intervalMinutes = repetition === 1 ? 4 * 24 * 60 : Math.round(4 * easeFactor * 24 * 60);
+    intervalMinutes = repetition === 1
+      ? 4 * 24 * 60
+      : Math.max(6 * 24 * 60, Math.round((existing?.intervalMinutes ?? 4 * 24 * 60) * easeFactor));
   }
   const nextReviewAt = new Date(now.getTime() + intervalMinutes * 60 * 1000).toISOString();
   return {
@@ -58,7 +93,7 @@ export function getReviewDueAt(card: ReviewCard, rating: ReviewRating, now = new
   };
 }
 
-function cardKey(card: ReviewCard): string {
+export function cardKey(card: ReviewCard): string {
   const source = `${card.question}\u0000${card.answer}`;
   let hash = 0;
   for (let index = 0; index < source.length; index += 1) {

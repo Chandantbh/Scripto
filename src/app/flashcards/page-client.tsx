@@ -20,8 +20,9 @@ import { classifyAIError, unwrapAIActionResult } from '@/lib/ai-action-result';
 import GenerationSkeleton from '@/components/app/generation-skeleton';
 import { useAuth } from '@clerk/nextjs';
 import { reserveGuestGeneration } from '@/lib/guest-mode';
-import { getDueFlashcardCount, getDueFlashcards, scheduleFlashcard, readFlashcardReviews, REVIEW_STORAGE_KEY, initializeFlashcardDeck, type FlashcardReview, type ReviewCard } from '@/lib/spaced-repetition';
-import { getFlashcardReviewsAction, syncFlashcardReviewsAction } from '@/app/actions/user-data';
+import { getDueFlashcardCount, getDueFlashcards, scheduleFlashcard, readFlashcardReviews, REVIEW_STORAGE_KEY, initializeFlashcardDeck, type FlashcardReview, type ReviewCard, type ReviewRating } from '@/lib/spaced-repetition';
+import { getFlashcardReviewsAction, syncFlashcardReviewsAction, recordActivityAction } from '@/app/actions/user-data';
+import { recordActivityLocally } from '@/lib/gamification';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -35,6 +36,16 @@ interface GeneratedContent {
     quiz?: { questions: any[] };
     imageHint?: string;
     sourceTopic?: string;
+}
+
+function withGenerationTimeout<T>(promise: Promise<T>, timeoutMs = 25_000): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error('Generation timed out. Please try a shorter topic or try again.')), timeoutMs);
+    promise.then(
+      value => { window.clearTimeout(timer); resolve(value); },
+      error => { window.clearTimeout(timer); reject(error); },
+    );
+  });
 }
 
 export default function FlashcardsPage() {
@@ -101,13 +112,15 @@ export default function FlashcardsPage() {
     }
   }, [isSignedIn]);
 
-  const handleReview = async (card: ReviewCard, rating: 'again' | 'good' | 'easy') => {
+  const handleReview = async (card: ReviewCard, rating: ReviewRating) => {
     const reviews = scheduleFlashcard(card, rating);
     const scheduled = reviews.find(review => review.card.question === card.question && review.card.answer === card.answer);
     const interval = scheduled?.intervalMinutes ?? 0;
     const feedback = rating === 'again'
       ? 'Scheduled: Next review is due immediately'
-      : interval >= 24 * 60
+      : rating === 'hard'
+        ? 'Scheduled: Next review in 12 hours'
+        : interval >= 24 * 60
         ? `Scheduled: Next review in ${interval >= 48 * 60 ? Math.round(interval / 1440) : 1} day${interval >= 2880 ? 's' : ''}`
         : `Scheduled: Next review in ${interval} minutes`;
     toast({ title: feedback });
@@ -148,6 +161,29 @@ export default function FlashcardsPage() {
     setComposerOpen(true);
     setGeneratedContent(null);
     setCurrentCards([]);
+  };
+
+  const handleCardsChange = (cards: GenerateFlashcardsOutput['flashcards']) => {
+    setCurrentCards(cards);
+    const initialized = initializeFlashcardDeck(cards);
+    window.localStorage.setItem(REVIEW_STORAGE_KEY, JSON.stringify(initialized));
+    setDueCount(getDueFlashcardCount(new Date(), initialized));
+    setDueCards(getDueFlashcards(new Date(), initialized));
+    if (isSignedIn) void syncFlashcardReviewsAction(initialized);
+  };
+
+  const handleSessionComplete = (reviewed: number, remembered: number) => {
+    const activity = {
+      type: 'quiz' as const,
+      topic: `Flashcards: ${generatedContent?.sourceTopic || 'Study deck'}`,
+      score: remembered,
+      total: reviewed,
+    };
+    if (isSignedIn) {
+      void recordActivityAction(activity).catch(() => recordActivityLocally(activity));
+    } else {
+      recordActivityLocally(activity);
+    }
   };
 
   const handleExportAnki = () => {
@@ -230,7 +266,7 @@ export default function FlashcardsPage() {
                 setIsLoading(false);
                 return;
             }
-            const topicResult = unwrapAIActionResult(await generateFromTopic({ topic: resolvedTopic }));
+            const topicResult = unwrapAIActionResult(await withGenerationTimeout(generateFromTopic({ topic: resolvedTopic })));
             result = {
                 flashcards: topicResult.flashcards,
                 notes: topicResult.notes,
@@ -280,7 +316,7 @@ export default function FlashcardsPage() {
                     return;
                 }
             }
-            result = unwrapAIActionResult(await generateFlashcards(input));
+            result = unwrapAIActionResult(await withGenerationTimeout(generateFlashcards(input)));
         }
 
       const initialized = initializeFlashcardDeck(result.flashcards);
@@ -329,7 +365,16 @@ export default function FlashcardsPage() {
       <FlashcardsDisplay
         key={viewerKey}
         flashcards={currentCards}
-        onReview={isDrilling ? handleReview : undefined}
+        onReview={handleReview}
+        onCardsChange={handleCardsChange}
+        sourceTopic={generatedContent?.sourceTopic}
+        onGenerateNew={() => {
+          setComposerOpen(true);
+          setGeneratedContent(null);
+          setCurrentCards([]);
+        }}
+        onBackToGenerator={handleBackToGenerator}
+        onSessionComplete={handleSessionComplete}
       />
     );
   };

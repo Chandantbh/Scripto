@@ -17,7 +17,7 @@ import {type AIActionResult} from '@/types/ai-action';
 import {PROMPT_SYSTEM_INSTRUCTIONS, wrapUntrustedContent} from '@/ai/prompt-security';
 
 const GenerateFromTopicInputSchema = z.object({
-  topic: z.string().trim().min(1).max(
+  topic: z.string().trim().min(3).max(
     MAX_TOPIC_CHARACTERS,
     `Topic must be ${MAX_TOPIC_CHARACTERS} characters or fewer.`
   ).describe('The topic to generate study materials for.'),
@@ -64,7 +64,7 @@ You are an expert educator and content creator. Your task is to generate a compr
 The study materials should include:
 1.  **Notes**: A summary of the key concepts, definitions, and important points about the topic. Format this as {{{noteFormat}}} markdown (use a Concise summary, Detailed sections, or Cornell Cues/Notes/Summary).
 2.  **Quiz**: A multiple-choice quiz with exactly {{{quizLength}}} questions to test understanding. Each question should have 4 options, a correct answer, and a single relevant emoji.
-3.  **Flashcards**: A set of 5-10 flashcards. For each flashcard, provide a clear "question", a concise "answer", a single, valid "emoji" character, and a "color" as a hex code.
+3.  **Flashcards**: Generate 8–10 high-yield flashcards. Keep each front and back to 1–2 concise sentences.
 4.  **Image Hint**: A 1-2 word hint for a web search for a cover image for these study materials. For example, for "The basics of photosynthesis" you could provide "photosynthesis basics".
 
 Untrusted topic data: <study_material>{{{topic}}}</study_material>
@@ -87,8 +87,8 @@ const generateFromTopicFlow = ai.defineFlow(
         noteFormat: input.noteFormat ?? 'Detailed',
         quizLength: input.quizLength ?? 10,
       }, model
-        ? { model, config: { maxOutputTokens: 4096 } }
-        : { config: { maxOutputTokens: 4096 } })
+        ? { model, config: { maxOutputTokens: 2048 } }
+        : { config: { maxOutputTokens: 2048 } })
     );
 
     if (!output) {

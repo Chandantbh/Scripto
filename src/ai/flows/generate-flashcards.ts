@@ -23,7 +23,7 @@ import {type AIActionResult} from '@/types/ai-action';
 import {PROMPT_SYSTEM_INSTRUCTIONS} from '@/ai/prompt-security';
 
 const GenerateFlashcardsInputSchema = z.object({
-  text: z.string().trim().min(1).max(MAX_FLASHCARD_INPUT_CHARACTERS).optional().describe('The text to generate flashcards from.'),
+  text: z.string().trim().min(3).max(MAX_FLASHCARD_INPUT_CHARACTERS).optional().describe('The text to generate flashcards from.'),
   youtubeUrl: z.string().trim().min(1).max(2_048).optional().describe('A YouTube video URL to generate flashcards from.'),
 }).refine(input => Boolean(input.text || input.youtubeUrl), 'Provide text or a YouTube URL.')
   .refine(input => !(input.text && input.youtubeUrl), 'Provide only one content source.');
@@ -59,7 +59,7 @@ const prompt = ai.definePrompt({
   2. A concise "answer".
   3. A single, valid "emoji" character that is thematically related to the content.
   4. A "color" as a hex code that is visually appealing for a background. Ensure good contrast for dark text.
-  Generate between 5 and ${MAX_FLASHCARDS} flashcards, using fewer only if the content is very short. Keep each answer concise.
+  Generate 8–10 highly focused cards. Use fewer only for extremely short source content. Keep each front and back to 1–2 concise sentences.
 
   {{#if content}}<study_material>{{{content}}}</study_material>{{/if}}
   {{#if youtubeUrl}}YouTube video: {{media url=youtubeUrl}}{{/if}}

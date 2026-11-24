@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { getReviewDueAt, getReviewIntervalMinutes, initializeFlashcardReview } from './spaced-repetition';
 
-test('uses the expected Again, Good, and Easy intervals', () => {
+test('uses the expected Again, Hard, Good, and Easy intervals', () => {
   assert.equal(getReviewIntervalMinutes('again'), 0);
+  assert.equal(getReviewIntervalMinutes('hard'), 12 * 60);
   assert.equal(getReviewIntervalMinutes('good'), 24 * 60);
   assert.equal(getReviewIntervalMinutes('easy'), 4 * 24 * 60);
 });
