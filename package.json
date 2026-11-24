@@ -55,7 +55,7 @@
     "lucide-react": "^0.475.0",
     "mammoth": "^1.8.0",
     "marked": "^13.0.2",
-    "next": "^15.5.9",
+    "next": "^16.4.6",
     "patch-package": "^8.0.0",
     "pdfjs-dist": "^4.4.178",
     "react": "^19.2.3",
