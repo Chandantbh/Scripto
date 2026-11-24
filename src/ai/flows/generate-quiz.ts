@@ -9,7 +9,7 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {generateWithModelFallback} from '@/ai/model-retry';
+import {generateWithModelFallback, MODEL_FALLBACKS} from '@/ai/model-retry';
 import {executeAIAction} from '@/ai/action-guard';
 import {AIInputError} from '@/ai/errors';
 import {MAX_AI_TEXT_CHARACTERS} from '@/ai/generation-limits';
@@ -77,7 +77,7 @@ const generateQuizFlow = ai.defineFlow(
       return GenerateQuizOutputSchema.parse(output);
     } catch (firstError) {
       const { output } = await prompt(promptInput, {
-        model: 'googleai/gemini-2.5-flash',
+        model: MODEL_FALLBACKS[1],
         config: { maxOutputTokens: 4096 },
       });
       try {

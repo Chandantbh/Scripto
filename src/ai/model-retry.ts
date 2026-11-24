@@ -1,7 +1,10 @@
-const FALLBACK_MODEL = 'googleai/gemini-2.5-flash';
-const MAX_ATTEMPTS_PER_MODEL = 2;
-const BASE_RETRY_DELAY_MS = 500;
-const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+export const MODEL_FALLBACKS = [
+  'googleai/gemini-3.5-flash-lite',
+  'googleai/gemini-3.8-flash',
+  'googleai/gemini-3.6-flash',
+  'googleai/gemini-4-hydrogen',
+] as const;
+const RETRYABLE_STATUSES = new Set([404, 408, 429, 500, 502, 503, 504]);
 const STATUS_CODES: Record<string, number> = {
   DEADLINE_EXCEEDED: 504,
   INTERNAL: 500,
@@ -9,7 +12,7 @@ const STATUS_CODES: Record<string, number> = {
   UNAVAILABLE: 503,
 };
 
-type ModelCall<T> = (model?: string) => Promise<T>;
+type ModelCall<T> = (model: string) => Promise<T>;
 type Delay = (milliseconds: number) => Promise<void>;
 
 const delay: Delay = milliseconds =>
@@ -21,31 +24,19 @@ export async function generateWithModelFallback<T>(
 ): Promise<T> {
   let lastError: unknown;
 
-  for (const [modelIndex, model] of [undefined, FALLBACK_MODEL].entries()) {
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt++) {
-      try {
-        return await generate(model);
-      } catch (error) {
-        lastError = error;
-        const status = getHttpStatus(error);
+  for (const [index, model] of MODEL_FALLBACKS.entries()) {
+    try {
+      return await generate(model);
+    } catch (error) {
+      lastError = error;
+      const status = getHttpStatus(error);
+      const retryable = status === undefined
+        ? isTransientNetworkError(error)
+        : RETRYABLE_STATUSES.has(status);
 
-        if (
-          status === undefined
-            ? !isTransientNetworkError(error)
-            : !RETRYABLE_STATUSES.has(status)
-        ) {
-          throw error;
-        }
-
-        if (modelIndex === 0) {
-          await wait(800);
-          break;
-        }
-        if (attempt < MAX_ATTEMPTS_PER_MODEL) {
-          await wait(800);
-          continue;
-        }
-        throw unavailableError(lastError);
+      if (!retryable) throw error;
+      if (index < MODEL_FALLBACKS.length - 1) {
+        await wait(500);
       }
     }
   }
@@ -110,6 +101,7 @@ function isTransientNetworkError(error: unknown, depth = 0): boolean {
   if ('message' in error && typeof error.message === 'string') {
     const message = error.message.toLowerCase();
     if (
+      message.includes('404') ||
       message.includes('503') ||
       message.includes('429') ||
       message.includes('high demand') ||

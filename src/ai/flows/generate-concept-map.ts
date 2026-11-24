@@ -8,6 +8,7 @@ import {type AIActionResult} from '@/types/ai-action';
 import {AIInputError} from '@/ai/errors';
 import {PROMPT_SYSTEM_INSTRUCTIONS} from '@/ai/prompt-security';
 import {generateWithFallback} from '@/ai/genkit';
+import {MODEL_FALLBACKS} from '@/ai/model-retry';
 import {
   ConceptMapOutputSchema,
   sanitizeConceptMap,
@@ -58,7 +59,7 @@ const generateConceptMapFlow = ai.defineFlow({
   let sanitized = sanitizeConceptMap(primary.output);
 
   if (sanitized.nodes.length < 8) {
-    const retry = await generate('googleai/gemini-2.5-flash');
+    const retry = await generate(MODEL_FALLBACKS[1]);
     sanitized = sanitizeConceptMap(retry.output);
   }
   if (sanitized.nodes.length < 8) {

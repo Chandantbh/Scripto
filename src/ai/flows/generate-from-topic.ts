@@ -9,7 +9,7 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {generateWithModelFallback} from '@/ai/model-retry';
+import {generateWithModelFallback, MODEL_FALLBACKS} from '@/ai/model-retry';
 import {executeAIAction} from '@/ai/action-guard';
 import {MAX_FLASHCARDS, MAX_TOPIC_CHARACTERS} from '@/ai/generation-limits';
 import {z} from 'genkit';
@@ -91,7 +91,7 @@ const generateFromTopicFlow = ai.defineFlow(
     } catch (firstError) {
       try {
         const fallback = await generateContentPrompt(promptInput, {
-          model: 'googleai/gemini-2.5-flash',
+          model: MODEL_FALLBACKS[1],
           config: { maxOutputTokens: 2048 },
         });
         output = GenerateFromTopicOutputSchema.parse(fallback.output);
