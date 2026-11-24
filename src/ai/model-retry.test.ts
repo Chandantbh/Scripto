@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { generateWithModelFallback } from './model-retry';
 
-const FALLBACK_MODEL = 'googleai/gemini-3.8-flash';
+const FALLBACK_MODEL = 'googleai/gemini-2.5-flash';
 
 test('retries transient HTTP errors and falls back, including 429 quota errors', async () => {
   for (const status of [408, 429, 500, 502, 503, 504]) {
@@ -24,8 +24,8 @@ test('retries transient HTTP errors and falls back, including 429 quota errors',
     );
 
     assert.equal(result, expected);
-    assert.deepEqual(models, [undefined, undefined, FALLBACK_MODEL]);
-    assert.deepEqual(delays, [500]);
+    assert.deepEqual(models, [undefined, FALLBACK_MODEL]);
+    assert.deepEqual(delays, [800]);
   }
 });
 
@@ -43,14 +43,11 @@ test('returns a friendly error after primary and fallback attempts are exhausted
         delays.push(milliseconds);
       }
     ),
-    /Gemini is temporarily busy/
+    /traffic spike/
   );
 
-  assert.deepEqual(models, [
-    undefined, undefined,
-    FALLBACK_MODEL, FALLBACK_MODEL,
-  ]);
-  assert.deepEqual(delays, [500, 500]);
+  assert.deepEqual(models, [undefined, FALLBACK_MODEL, FALLBACK_MODEL]);
+  assert.deepEqual(delays, [800, 800]);
 });
 
 test('retries recognized Google API network failures', async () => {
@@ -73,7 +70,7 @@ test('retries recognized Google API network failures', async () => {
   );
 
   assert.equal(result, expected);
-  assert.deepEqual(models, [undefined, undefined, FALLBACK_MODEL]);
+  assert.deepEqual(models, [undefined, FALLBACK_MODEL]);
 });
 
 test('does not retry or fall back for non-transient HTTP errors', async () => {

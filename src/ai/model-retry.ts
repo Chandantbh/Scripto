@@ -1,4 +1,4 @@
-const FALLBACK_MODEL = 'googleai/gemini-3.8-flash';
+const FALLBACK_MODEL = 'googleai/gemini-2.5-flash';
 const MAX_ATTEMPTS_PER_MODEL = 2;
 const BASE_RETRY_DELAY_MS = 500;
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
@@ -37,15 +37,14 @@ export async function generateWithModelFallback<T>(
           throw error;
         }
 
-        if (attempt < MAX_ATTEMPTS_PER_MODEL) {
-          await wait(BASE_RETRY_DELAY_MS * 2 ** (attempt - 1));
-          continue;
-        }
-
         if (modelIndex === 0) {
+          await wait(800);
           break;
         }
-
+        if (attempt < MAX_ATTEMPTS_PER_MODEL) {
+          await wait(800);
+          continue;
+        }
         throw unavailableError(lastError);
       }
     }
@@ -108,24 +107,39 @@ function isTransientNetworkError(error: unknown, depth = 0): boolean {
     return false;
   }
 
-  if (
-    'name' in error &&
-    error.name === 'GoogleGenerativeAIError' &&
-    'message' in error &&
-    typeof error.message === 'string' &&
-    /^(\[GoogleGenerativeAI Error\]\s*)?Error fetching from https:\/\/generativelanguage\.googleapis\.com\//i.test(
-      error.message
-    )
-  ) {
-    return true;
+  if ('message' in error && typeof error.message === 'string') {
+    const message = error.message.toLowerCase();
+    if (
+      message.includes('503') ||
+      message.includes('429') ||
+      message.includes('high demand') ||
+      message.includes('overloaded') ||
+      message.includes('resource_exhausted') ||
+      message.includes('unavailable') ||
+      /generativelanguage\.googleapis\.com/i.test(error.message)
+    ) {
+      return true;
+    }
   }
 
   return 'cause' in error && isTransientNetworkError(error.cause, depth + 1);
 }
 
 function unavailableError(cause: unknown): Error {
-  return new Error(
-    'Gemini is temporarily busy. Please try again in a few minutes.',
-    { cause }
-  );
+  const raw = cause instanceof Error ? cause.message : String(cause ?? '');
+  const lowered = raw.toLowerCase();
+  const status = getHttpStatus(cause);
+  if (lowered.includes('429') || lowered.includes('rate limit')) {
+    return new Error("You've hit the generation cooldown—wait a minute and try again.", { cause });
+  }
+  if (
+    status === 503 ||
+    lowered.includes('503') ||
+    lowered.includes('high demand') ||
+    lowered.includes('overloaded') ||
+    lowered.includes('unavailable')
+  ) {
+    return new Error('The AI servers are experiencing a brief traffic spike. Please wait a few seconds and click Try Again.', { cause });
+  }
+  return new Error('The AI service is temporarily unavailable. Please try again.', { cause });
 }

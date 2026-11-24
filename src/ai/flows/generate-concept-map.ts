@@ -7,6 +7,7 @@ import {MAX_TOPIC_CHARACTERS} from '@/ai/generation-limits';
 import {type AIActionResult} from '@/types/ai-action';
 import {AIInputError} from '@/ai/errors';
 import {PROMPT_SYSTEM_INSTRUCTIONS} from '@/ai/prompt-security';
+import {generateWithFallback} from '@/ai/genkit';
 
 const ConceptMapInputSchema = z.object({
   topic: z.string().trim().min(1).max(MAX_TOPIC_CHARACTERS),
@@ -72,9 +73,14 @@ const generateConceptMapFlow = ai.defineFlow({
     inputSchema: NormalizedConceptMapInputSchema,
     outputSchema: ConceptMapOutputSchema,
 }, async (input) => {
-    const result = await generateConceptMapPrompt(input, {
-      config: { maxOutputTokens: 4096 },
-    });
+    const result = await generateWithFallback(model =>
+      generateConceptMapPrompt(
+        input,
+        model
+          ? { model, config: { maxOutputTokens: 4096 } }
+          : { config: { maxOutputTokens: 4096 } },
+      )
+    );
     if (!result.output) {
         throw new Error('Failed to generate concept map');
     }

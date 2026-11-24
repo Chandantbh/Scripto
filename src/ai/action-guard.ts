@@ -2,7 +2,7 @@ import 'server-only';
 
 import { type ZodError, type ZodType, type ZodTypeDef } from 'zod';
 import { auth } from '@clerk/nextjs/server';
-import { AIInputError } from '@/ai/errors';
+import { AIInputError, formatUserErrorMessage } from '@/ai/errors';
 import { MAX_AI_TEXT_CHARACTERS, MAX_TOPIC_CHARACTERS } from '@/ai/generation-limits';
 import { checkAIRateLimit } from '@/lib/rate-limit';
 import { normalizeYouTubeUrl } from '@/services/youtube';
@@ -87,25 +87,13 @@ export async function executeAIAction<ParsedInput, Output, SchemaInput = ParsedI
     }
 
     console.error(`AI action "${operation}" failed.`, error);
-    if (exposeActionError && error instanceof Error) {
-      const message = error.message.trim();
-      if (message && message.length <= 500 && !message.includes('\n')) {
-        return {
-          ok: false,
-          error: {
-            status: 503,
-            code: 'AI_UNAVAILABLE',
-            message,
-          },
-        };
-      }
-    }
+    const message = formatUserErrorMessage(error);
     return {
       ok: false,
       error: {
         status: 503,
         code: 'AI_UNAVAILABLE',
-        message: TEMPORARY_ERROR_MESSAGE,
+        message: message && message.length <= 500 ? message : TEMPORARY_ERROR_MESSAGE,
       },
     };
   }

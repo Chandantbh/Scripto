@@ -1,4 +1,5 @@
 import { type AIActionResult } from '@/types/ai-action';
+import { formatUserErrorMessage } from '@/ai/errors';
 
 export class AIActionFailure extends Error {
   constructor(
@@ -43,7 +44,7 @@ export function classifyAIError(error: unknown): FriendlyAIError {
       return { message: "Couldn't grab captions from this video—try pasting the transcript or uploading notes instead.", kind: 'youtube', status: error.status, code: error.code };
     }
     if (error.status === 503 && error.message.trim()) {
-      return { message: error.message, kind: 'generic', status: error.status, code: error.code };
+      return { message: formatUserErrorMessage(error), kind: 'generic', status: error.status, code: error.code };
     }
   }
 
@@ -55,5 +56,5 @@ export function classifyAIError(error: unknown): FriendlyAIError {
   if (lowered.includes('caption') || lowered.includes('transcript') || lowered.includes('private video') || lowered.includes('youtube')) {
     return { message: "Couldn't grab captions from this video—try pasting the transcript or uploading notes instead.", kind: 'youtube' };
   }
-  return { message: 'Something went wrong generating your study material. Check your connection and try again.', kind: 'generic' };
+  return { message: formatUserErrorMessage(error), kind: 'generic' };
 }

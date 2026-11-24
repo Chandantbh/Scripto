@@ -9,3 +9,5 @@ export const ai = genkit({
 });
 export { googleAI };
 
+export { generateWithModelFallback as generateWithFallback } from '@/ai/model-retry';
+
