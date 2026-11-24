@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { BrainCircuit, Loader2, Wand2, Layers, BookOpen, Upload, Download, FileType, Youtube, ChevronDown, FileJson } from 'lucide-react';
+import { BrainCircuit, Loader2, Wand2, Layers, BookOpen, Upload, Download, FileType, Youtube, ChevronDown, FileJson, Maximize2 } from 'lucide-react';
 
 import { generateFlashcards, type GenerateFlashcardsOutput, type GenerateFlashcardsInput } from '@/ai/flows/generate-flashcards';
 import { generateFromTopic } from '@/ai/flows/generate-from-topic';
@@ -14,6 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import FlashcardsDisplay from '@/components/app/flashcards-display';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { extractTextFromFile } from '@/lib/file-parser';
 import AIErrorBanner from '@/components/app/ai-error-banner';
 import { classifyAIError, unwrapAIActionResult } from '@/lib/ai-action-result';
@@ -27,6 +28,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import jsPDF from 'jspdf';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 
 type InputMode = 'text' | 'topic' | 'youtube' | 'file';
 
@@ -65,6 +67,8 @@ export default function FlashcardsPage() {
   const [isDrilling, setIsDrilling] = useState(false);
   const [currentCards, setCurrentCards] = useState<GenerateFlashcardsOutput['flashcards']>([]);
   const [viewerKey, setViewerKey] = useState(0);
+  const [refineDrawerOpen, setRefineDrawerOpen] = useState(false);
+  const [refinementPreset, setRefinementPreset] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const generationInProgressRef = useRef(false);
 
@@ -266,7 +270,10 @@ export default function FlashcardsPage() {
                 setIsLoading(false);
                 return;
             }
-            const topicResult = unwrapAIActionResult(await withGenerationTimeout(generateFromTopic({ topic: resolvedTopic })));
+            const refinedTopic = refinementPreset
+              ? `${resolvedTopic}. ${refinementPreset}`
+              : resolvedTopic;
+            const topicResult = unwrapAIActionResult(await withGenerationTimeout(generateFromTopic({ topic: refinedTopic })));
             result = {
                 flashcards: topicResult.flashcards,
                 notes: topicResult.notes,
@@ -282,7 +289,7 @@ export default function FlashcardsPage() {
                   setIsLoading(false);
                   return;
                 }
-                input.text = text;
+                input.text = refinementPreset ? `${text.trim()}\n\nRefinement: ${refinementPreset}` : text;
             } else if (inputMode === 'youtube') {
                 if (!youtubeUrl.trim()) {
                   setGenerationError('Enter a YouTube video URL.');
@@ -397,6 +404,16 @@ export default function FlashcardsPage() {
         <Button variant="outline" onClick={handleDrillDue} disabled={dueCount === 0}>
           Drill due cards
         </Button>
+        {generatedContent && (
+          <Button variant="outline" onClick={() => {
+            const element = document.getElementById('generated-flashcards');
+            if (!document.fullscreenElement) void element?.requestFullscreen();
+            else void document.exitFullscreen();
+          }}>
+            <Maximize2 className="mr-2 h-4 w-4" />
+            Fullscreen
+          </Button>
+        )}
         {generatedContent?.flashcards?.length ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -435,8 +452,8 @@ export default function FlashcardsPage() {
               Back to Generator
             </Button>
           ) : (
-            <Button variant="outline" size="sm" onClick={() => setComposerOpen(true)}>
-              + New topic / Edit input
+            <Button variant="outline" size="sm" onClick={() => setRefineDrawerOpen(true)}>
+              Edit Input / Refine with AI
             </Button>
           )}
         </div>
@@ -512,7 +529,7 @@ export default function FlashcardsPage() {
             </Card>
           </div>
 
-          <Card id="generated-flashcards" className={`${generatedContent && !composerOpen ? '' : 'mt-6'} min-h-[400px] lg:min-h-[600px] flex flex-col scroll-mt-24`}>
+          <Card id="generated-flashcards" className={`${generatedContent && !composerOpen ? '' : 'mt-6'} ${generatedContent && !composerOpen ? 'min-h-[78vh]' : 'min-h-[400px] lg:min-h-[600px]'} flex flex-col scroll-mt-24`}>
             <CardHeader>
               <CardTitle>Generated Flashcards</CardTitle>
               <CardDescription>Review your key concepts.</CardDescription>
@@ -522,6 +539,48 @@ export default function FlashcardsPage() {
             </CardContent>
           </Card>
         </div>
+
+      <Sheet open={refineDrawerOpen} onOpenChange={setRefineDrawerOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Edit Input / Refine with AI</SheetTitle>
+            <SheetDescription>Update the source and regenerate without leaving the flashcard canvas.</SheetDescription>
+          </SheetHeader>
+          <div className="mt-6 space-y-4">
+            {inputMode === 'topic' ? (
+              <div className="space-y-2">
+                <Label htmlFor="refine-topic">Topic</Label>
+                <Input id="refine-topic" value={topic} maxLength={200} onChange={event => setTopic(event.target.value)} />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="refine-source">Source text</Label>
+                <Textarea id="refine-source" value={text} maxLength={15000} className="min-h-[180px]"
+                  onChange={event => setText(event.target.value)} />
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label>Refinement preset</Label>
+              <div className="grid gap-2">
+                {['Add more depth', 'Simplify branches', 'Focus on exam key terms'].map(preset => (
+                  <Button key={preset} type="button" variant={refinementPreset === preset ? 'default' : 'outline'}
+                    onClick={() => setRefinementPreset(preset)}>
+                    {preset}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <Button className="w-full" disabled={isLoading} onClick={() => {
+              setRefineDrawerOpen(false);
+              setGeneratedContent(null);
+              setComposerOpen(false);
+              void handleGenerate();
+            }}>
+              {isLoading ? 'Regenerating...' : 'Regenerate Deck'}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
