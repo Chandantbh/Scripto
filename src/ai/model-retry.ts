@@ -2,9 +2,8 @@ import { ZodError } from 'zod';
 import { AIOutputValidationError } from '@/ai/errors';
 
 export const MODEL_FALLBACKS = [
-  'googleai/gemini-3.5-flash-lite',
-  'googleai/gemini-3.8-flash',
-  'googleai/gemini-3.6-flash',
+  'googleai/gemini-4-hydrogen',
+  'googleai/gemini-4-hydrogen',
   'googleai/gemini-4-hydrogen',
 ] as const;
 const STATUS_CODES: Record<string, number> = {
