@@ -1,11 +1,18 @@
 import { ZodError } from 'zod';
 import { AIOutputValidationError } from '@/ai/errors';
 
-export const MODEL_FALLBACKS = [
+export const MODEL_FALLBACKS: readonly string[] = [
   'googleai/gemini-4-hydrogen',
-  'googleai/gemini-4-hydrogen',
-  'googleai/gemini-4-hydrogen',
+  'googleai/gemini-4-argon',
+  'googleai/gemini-4-carbon',
+  'googleai/gemini-4-neon',
+];
+
+const GROQ_MODELS = [
+  'llama-3.3-70b-versatile',
+  'llama-3.1-8b-instant',
 ] as const;
+
 const STATUS_CODES: Record<string, number> = {
   DEADLINE_EXCEEDED: 504,
   INTERNAL: 500,
@@ -34,13 +41,13 @@ export async function generateWithFallback<T>(
 
   for (const [index, model] of MODEL_FALLBACKS.entries()) {
     try {
-      const result = await generate(model);
-      return result;
+      return await generate(model);
     } catch (err) {
       lastError = err;
-      const errorMessage = typeof err === 'object' && err !== null && 'message' in err
-        ? err.message
-        : undefined;
+      const errorMessage =
+        typeof err === 'object' && err !== null && 'message' in err
+          ? err.message
+          : undefined;
       console.error('[AI_MODEL_FAIL]', model, errorMessage);
       if (index < MODEL_FALLBACKS.length - 1) {
         await wait(500);
@@ -56,6 +63,62 @@ export async function generateWithFallback<T>(
 }
 
 export const generateWithModelFallback = generateWithFallback;
+
+export async function generateJsonWithGroq<T>(params: {
+  system?: string;
+  prompt: string;
+  maxTokens?: number;
+}): Promise<T> {
+  const apiKey = process.env.GROQ_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error('GROQ_API_KEY is not configured');
+  }
+
+  let lastError: unknown;
+
+  for (const model of GROQ_MODELS) {
+    try {
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            ...(params.system ? [{ role: 'system', content: params.system }] : []),
+            {
+              role: 'user',
+              content: `${params.prompt}\n\nReturn ONLY valid JSON with no markdown code fences or extra commentary.`,
+            },
+          ],
+          response_format: { type: 'json_object' },
+          max_tokens: params.maxTokens ?? 2048,
+          temperature: 0.4,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Groq HTTP ${response.status}: ${errorBody}`);
+      }
+
+      const data = await response.json();
+      const rawContent = data?.choices?.[0]?.message?.content;
+      if (typeof rawContent !== 'string' || !rawContent.trim()) {
+        throw new Error('Groq returned an empty response');
+      }
+
+      return JSON.parse(rawContent) as T;
+    } catch (err) {
+      lastError = err;
+      console.error('[GROQ_MODEL_FAIL]', model, err instanceof Error ? err.message : err);
+    }
+  }
+
+  throw lastError;
+}
 
 function isGeminiApiError(error: unknown): boolean {
   if (getHttpStatus(error) !== undefined) return true;
